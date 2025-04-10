@@ -1,162 +1,279 @@
 ---
-title: "R Notebook"
-output: html_notebook
+title: "KOI analysis - Data preparation"
+author: "Davide Tonetto"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    theme: cosmo          
+    highlight: tango      
+    toc: true             
+    toc_float: true       
+    toc_depth: 3          
+    number_sections: true 
+    df_print: paged       
+    code_folding: show    
+    fig_width: 10         
+    fig_height: 6         
 ---
 
-# Data description
+```{r setup, include=FALSE}
+# Set CRAN mirror
+options(repos = c(CRAN = "https://cloud.r-project.org"))
 
-## Columns
-- kepid:          KepID
-- kepoi_name:     KOI Name
-- kepler_name:    Kepler Name
-- koi_disposition: Exoplanet Archive Disposition
-- koi_vet_stat:   Vetting Status
-- koi_vet_date:   Date of Last Parameter Update
-- koi_pdisposition: Disposition Using Kepler Data
-- koi_score:      Disposition Score
-- koi_fpflag_nt:  Not Transit-Like False Positive Flag
-- koi_fpflag_ss:  Stellar Eclipse False Positive Flag
-- koi_fpflag_co:  Centroid Offset False Positive Flag
-- koi_fpflag_ec:  Ephemeris Match Indicates Contamination False Positive Flag
-- koi_disp_prov:  Disposition Provenance
-- koi_comment:    Comment
-- koi_period:     Orbital Period [days]
-- koi_period_err1: Orbital Period Upper Unc. [days]
-- koi_period_err2: Orbital Period Lower Unc. [days]
-- koi_time0bk:    Transit Epoch [BKJD]
-- koi_time0bk_err1: Transit Epoch Upper Unc. [BKJD]
-- koi_time0bk_err2: Transit Epoch Lower Unc. [BKJD]
-- koi_time0:      Transit Epoch [BJD]
-- koi_time0_err1: Transit Epoch Upper Unc. [BJD]
-- koi_time0_err2: Transit Epoch Lower Unc. [BJD]
-- koi_eccen:      Eccentricity
-- koi_eccen_err1: Eccentricity Upper Unc.
-- koi_eccen_err2: Eccentricity Lower Unc.
-- koi_longp:      Long. of Periastron [deg]
-- koi_longp_err1: Long. of Periastron Upper Unc. [deg]
-- koi_longp_err2: Long. of Periastron Lower Unc. [deg]
-- koi_impact:     Impact Parameter
-- koi_impact_err1: Impact Parameter Upper Unc.
-- koi_impact_err2: Impact Parameter Lower Unc.
-- koi_duration:   Transit Duration [hrs]
-- koi_duration_err1: Transit Duration Upper Unc. [hrs]
-- koi_duration_err2: Transit Duration Lower Unc. [hrs]
-- koi_ingress:    Ingress Duration [hrs]
-- koi_ingress_err1: Ingress Duration Upper Unc. [hrs]
-- koi_ingress_err2: Ingress Duration Lower Unc. [hrs]
-- koi_depth:      Transit Depth [ppm]
-- koi_depth_err1: Transit Depth Upper Unc. [ppm]
-- koi_depth_err2: Transit Depth Lower Unc. [ppm]
-- koi_ror:        Planet-Star Radius Ratio
-- koi_ror_err1:   Planet-Star Radius Ratio Upper Unc.
-- koi_ror_err2:   Planet-Star Radius Ratio Lower Unc.
-- koi_srho:       Fitted Stellar Density [g/cm**3]
-- koi_srho_err1:  Fitted Stellar Density Upper Unc. [g/cm**3]
-- koi_srho_err2:  Fitted Stellar Density Lower Unc. [g/cm**3]
-- koi_fittype:    Planetary Fit Type
-- koi_prad:       Planetary Radius [Earth radii]
-- koi_prad_err1:  Planetary Radius Upper Unc. [Earth radii]
-- koi_prad_err2:  Planetary Radius Lower Unc. [Earth radii]
-- koi_sma:        Orbit Semi-Major Axis [au]
-- koi_sma_err1:   Orbit Semi-Major Axis Upper Unc. [au]
-- koi_sma_err2:   Orbit Semi-Major Axis Lower Unc. [au]
-- koi_incl:       Inclination [deg]
-- koi_incl_err1:  Inclination Upper Unc. [deg]
-- koi_incl_err2:  Inclination Lower Unc. [deg]
-- koi_teq:        Equilibrium Temperature [K]
-- koi_teq_err1:   Equilibrium Temperature Upper Unc. [K]
-- koi_teq_err2:   Equilibrium Temperature Lower Unc. [K]
-- koi_insol:      Insolation Flux [Earth flux]
-- koi_insol_err1: Insolation Flux Upper Unc. [Earth flux]
-- koi_insol_err2: Insolation Flux Lower Unc. [Earth flux]
-- koi_dor:        Planet-Star Distance over Star Radius
-- koi_dor_err1:   Planet-Star Distance over Star Radius Upper Unc.
-- koi_dor_err2:   Planet-Star Distance over Star Radius Lower Unc.
-- koi_limbdark_mod: Limb Darkening Model
-- koi_ldm_coeff4: Limb Darkening Coeff. 4
-- koi_ldm_coeff3: Limb Darkening Coeff. 3
-- koi_ldm_coeff2: Limb Darkening Coeff. 2
-- koi_ldm_coeff1: Limb Darkening Coeff. 1
-- koi_parm_prov:  Parameters Provenance
-- koi_max_sngle_ev: Maximum Single Event Statistic
-- koi_max_mult_ev: Maximum Multiple Event Statistic
-- koi_model_snr:  Transit Signal-to-Noise
-- koi_count:      Number of Planets
-- koi_num_transits: Number of Transits
-- koi_tce_plnt_num: TCE Planet Number
-- koi_tce_delivname: TCE Delivery
-- koi_quarters:   Quarters
-- koi_bin_oedp_sig: Odd-Even Depth Comparision Statistic
-- koi_trans_mod:  Transit Model
-- koi_model_dof:  Degrees of Freedom
-- koi_model_chisq: Chi-Square
-- koi_datalink_dvr: Link to DV Report
-- koi_datalink_dvs: Link to DV Summary
-- koi_steff:      Stellar Effective Temperature [K]
-- koi_steff_err1: Stellar Effective Temperature Upper Unc. [K]
-- koi_steff_err2: Stellar Effective Temperature Lower Unc. [K]
-- koi_slogg:      Stellar Surface Gravity [log10(cm/s**2)]
-- koi_slogg_err1: Stellar Surface Gravity Upper Unc. [log10(cm/s**2)]
-- koi_slogg_err2: Stellar Surface Gravity Lower Unc. [log10(cm/s**2)]
-- koi_smet:       Stellar Metallicity [dex]
-- koi_smet_err1:  Stellar Metallicity Upper Unc. [dex]
-- koi_smet_err2:  Stellar Metallicity Lower Unc. [dex]
-- koi_srad:       Stellar Radius [Solar radii]
-- koi_srad_err1:  Stellar Radius Upper Unc. [Solar radii]
-- koi_srad_err2:  Stellar Radius Lower Unc. [Solar radii]
-- koi_smass:      Stellar Mass [Solar mass]
-- koi_smass_err1: Stellar Mass Upper Unc. [Solar mass]
-- koi_smass_err2: Stellar Mass Lower Unc. [Solar mass]
-- koi_sage:       Stellar Age [Gyr]
-- koi_sage_err1:  Stellar Age Upper Unc. [Gyr]
-- koi_sage_err2:  Stellar Age Lower Unc. [Gyr]
-- koi_sparprov:   Stellar Parameter Provenance
-- ra:             RA [decimal degrees]
-- dec:            Dec [decimal degrees]
-- koi_kepmag:     Kepler-band [mag]
-- koi_gmag:       g'-band [mag]
-- koi_rmag:       r'-band [mag]
-- koi_imag:       i'-band [mag]
-- koi_zmag:       z'-band [mag]
-- koi_jmag:       J-band [mag]
-- koi_hmag:       H-band [mag]
-- koi_kmag:       K-band [mag]
-- koi_fwm_stat_sig: FW Offset Significance [percent]
-- koi_fwm_sra:    FW Source &alpha;(OOT) [hrs]
-- koi_fwm_sra_err: FW Source &alpha;(OOT) Unc. [hrs]
-- koi_fwm_sdec:   FW Source &delta;(OOT) [deg]
-- koi_fwm_sdec_err: FW Source &delta;(OOT) Unc. [deg]
-- koi_fwm_srao:   FW Source &Delta;&alpha;(OOT) [sec]
-- koi_fwm_srao_err: FW Source &Delta;&alpha;(OOT) Unc. [sec]
-- koi_fwm_sdeco:  FW Source &Delta;&delta;(OOT) [arcsec]
-- koi_fwm_sdeco_err: FW Source &Delta;&delta;(OOT) Unc. [arcsec]
-- koi_fwm_prao:   FW &Delta;&alpha;(OOT) [sec]
-- koi_fwm_prao_err: FW &Delta;&alpha;(OOT) Unc. [sec]
-- koi_fwm_pdeco:  FW &Delta;&delta;(OOT) [arcsec]
-- koi_fwm_pdeco_err: FW &Delta;&delta;(OOT) Unc. [arcsec]
-- koi_dicco_mra:  PRF &Delta;&alpha;<sub>SQ</sub>(OOT) [arcsec]
-- koi_dicco_mra_err: PRF &Delta;&alpha;<sub>SQ</sub>(OOT) Unc. [arcsec]
-- koi_dicco_mdec: PRF &Delta;&delta;<sub>SQ</sub>(OOT) [arcsec]
-- koi_dicco_mdec_err: PRF &Delta;&delta;<sub>SQ</sub>(OOT) Unc. [arcsec]
-- koi_dicco_msky: PRF &Delta;&theta;<sub>SQ</sub>(OOT) []arcsec
-- koi_dicco_msky_err: PRF &Delta;&theta;<sub>SQ</sub>(OOT) Unc. [arcsec]
-- koi_dikco_mra:  PRF &Delta;&alpha;<sub>SQ</sub>(KIC) [arcsec]
-- koi_dikco_mra_err: PRF &Delta;&alpha;<sub>SQ</sub>(KIC) Unc. [arcsec]
-- koi_dikco_mdec: PRF &Delta;&delta;<sub>SQ</sub>(KIC) [arcsec]
-- koi_dikco_mdec_err: PRF &Delta;&delta;<sub>SQ</sub>(KIC) Unc. [arcsec]
-- koi_dikco_msky: PRF &Delta;&theta;<sub>SQ</sub>(KIC) [arcsec]
-- koi_dikco_msky_err: PRF &Delta;&theta;<sub>SQ</sub>(KIC) Unc. [arcsec]
+# Function to install and load required packages
+packages <- c("tidyverse", "summarytools", "naniar")
 
-# Load data from .csv
-```{r}
-koi <- read.csv("data/cumulative_koi.csv")
-head(koi)
+# Install packages not yet installed
+installed_packages <- packages %in% rownames(installed.packages())
+if (any(!installed_packages)) {
+  install.packages(packages[!installed_packages])
+}
+
+# Load all required packages
+invisible(lapply(packages, library, character.only = TRUE))
+
+# Set global chunk options
+knitr::opts_chunk$set(
+  warning = FALSE, # Don't show warnings in the output
+  message = FALSE, # Don't show package loading messages
+  echo = TRUE, # Show R code chunks in the output
+  fig.width = 10, # Set default figure width
+  fig.height = 6 # Set default figure height
+)
 ```
 
+# Data description - Kepler Objects of Interest (KOIs)
+KOIs are well vetted, periodic, transit-like events in the Kepler data. The Kepler Project identifies these objects from the TCE list for further vetting. Some objects will be flagged as false positives.
+
+All KOI tables are displayed in a single, interactive environment with separate tabs for each table (e.g., Q1-6, Q1-8, cumulative, etc). Column selection and filtering applies to all tabs, allowing easier comparison of values across KOI tables.
+
+## Dataset Selection and Characteristics
+The dataset selected for this statistical analysis aimed at predicting exoplanet status is the Q1-Q17 Data Release 25 (DR 25) Kepler Objects of Interest (KOI) table. This specific table was chosen due to several key characteristics that make it particularly well-suited for developing robust statistical models:
+
+1. **Uniform Data Processing**: The table is derived from Data Release 25, which represents the final, uniform processing of the entire primary Kepler mission dataset (Quarters 1 through 17). This ensures consistency in the underlying light curve data used for analysis.
+2. **Automated and Uniform Vetting**: A critical feature of the DR 25 KOI table is its use of a fully automated dispositioning process, known as the Kepler Robovetter. This algorithm applies a consistent set of rules and metrics to uniformly classify each Threshold Crossing Event (TCE) as either a Planetary Candidate (PC) or a False Positive (FP).
+3. **Designed for Statistical Analysis**: As explicitly stated in its documentation, this catalog was generated with the primary goal of enabling statistical analyses, such as the calculation of exoplanetary occurrence rates. The emphasis was placed on uniformity and automated, repeatable classification rather than maximizing the accuracy for every single individual object (which might involve manual intervention or external data, as seen in the DR25 Supplemental table).
+4. **Homogeneity**: The automated and uniform vetting process yields a homogenous catalog suitable for robust statistical analyses. This internal consistency is crucial for training reliable statistical or machine learning models, as the classification criteria are applied consistently across all entries designated as KOIs within this table.
+
+Therefore, the Q1-Q17 DR 25 KOI table was selected because its **rigorous, automated, and uniform classification methodology provides the most suitable foundation for building a statistical model** intended to predict whether an object is likely an exoplanet based on the parameters derived consistently from the Kepler pipeline and vetting process. This minimizes biases that could arise from aggregating data processed or vetted using different methods over time, as found in the Cumulative table, or from incorporating non-uniform manual assessments, as in the Supplemental table.
+
+## Columns Description
+### Identification Columns
+Basic identifiers linking the Kepler Object of Interest (KOI) to the target star in the Kepler Input Catalog (KIC).
+
+- **`kepid`**: Kepler Identification (KepID) - Target identification number from the Kepler Input Catalog (KIC). Unique per target.
+- **`kepoi_name`**: KOI Name - Unique identifier for a Kepler Object of Interest (KOI), format KNNNNN.DD. The integer part identifies the target star, the decimal part identifies the specific transiting object.
+
+### Exoplanet Archive Information
+Status and naming conventions as maintained by the NASA Exoplanet Archive, reflecting the official disposition and vetting status.
+
+- **`kepler_name`**: Kepler Name - Official name ("Kepler-Nn") assigned to confirmed or validated planets.
+- **`koi_disposition`**: Exoplanet Archive Disposition - The classification status of the KOI within the Exoplanet Archive (e.g., CANDIDATE, FALSE POSITIVE, CONFIRMED, NOT DISPOSITIONED).
+- **`koi_vet_stat`**: Vetting Status - The status of the vetting process for this KOI delivery (ACTIVE or DONE). Critical for sample completeness studies.
+- **`koi_vet_date`**: Date of Last Parameter Update - The date when parameters for this KOI were last updated.
+
+### Project Disposition Columns
+Columns detailing the classification (Candidate, False Positive) determined by the Kepler project's automated vetting pipeline (Robovetter), including confidence scores and specific false positive flags.
+
+- **`koi_pdisposition`**: Disposition Using Kepler Data - Pipeline flag indicating the most probable physical explanation (CANDIDATE, FALSE POSITIVE, NOT DISPOSITIONED). Based on Kepler data analysis.
+- **`koi_score`**: Disposition Score - A value (0-1) indicating confidence in the `koi_pdisposition`. Higher score means more confidence for CANDIDATEs, less confidence for FALSE POSITIVEs.
+- **`koi_fpflag_nt`**: Not Transit-Like Flag - Set if the light curve is inconsistent with a transiting planet model (e.g., instrumental artifact, stellar variability).
+- **`koi_fpflag_ss`**: Stellar Eclipse Flag - Set if a significant secondary event, transit shape, or variability suggests an eclipsing binary. Can also be set for self-luminous hot Jupiters (still dispositioned as PC).
+- **`koi_fpflag_co`**: Centroid Offset Flag - Set if the transit signal likely originates from a nearby star, indicated by centroid shifts or halo pixel signals.
+- **`koi_fpflag_ec`**: Ephemeris Match Indicates Contamination Flag - Set if the KOI shares period/epoch with another object, suggesting contamination.
+- **`koi_disp_prov`**: Disposition Provenance - Indicates the source or basis for the object's disposition.
+- **`koi_comment`**: KOI Comment - Text description explaining the reason for a FALSE POSITIVE disposition or listing minor Robovetter flags.
+
+### Transit Properties
+Parameters describing the observed transit event itself, derived from light curve fitting (e.g., period, duration, depth) and related physical properties of the planet candidate (e.g., radius, temperature).
+
+- **`koi_period`**: Orbital Period (days) - The time interval between consecutive transits.
+- **`koi_time0bk`**: Transit Epoch (BJD - 2,454,833.0) - Time corresponding to the center of the first detected transit in Barycentric Julian Day, minus a constant offset (Jan 1, 2009 12:00 UTC).
+- **`koi_time0`**: Transit Epoch in BJD - Time corresponding to the center of the first detected transit in Barycentric Julian Day (BJD).
+- **`koi_eccen`**: Eccentricity - Orbital eccentricity value.
+- **`koi_longp`**: Longitude of Periastron (deg) - Orbital longitude of periastron.
+- **`koi_impact`**: Impact Parameter - Sky-projected distance between star center and planet center at conjunction, normalized by stellar radius.
+- **`koi_duration`**: Transit Duration (hours) - Time from first contact to last contact of the transit.
+- **`koi_ingress`**: Ingress Duration (hours) - Time between first and second contact during the transit.
+- **`koi_depth`**: Transit Depth (parts per million) - Fraction of stellar flux lost at the minimum of the transit.
+- **`koi_ror`**: Planet-Star Radius Ratio - The ratio of the planet's radius to the star's radius.
+- **`koi_srho`**: Fitted Stellar Density (g/cm³) - Stellar density derived directly from light curve fitting (period, depth, duration), independent of listed stellar mass/radius.
+- **`koi_fittype`**: Planetary Fit Type - Method used to fit planetary parameters (e.g., LS, MCMC, DV).
+- **`koi_prad`**: Planetary Radius (Earth radii) - Radius of the planet, derived from `koi_ror` and `koi_srad`.
+- **`koi_sma`**: Orbit Semi-Major Axis (AU) - Half of the long axis of the planet's orbit, derived using Kepler's third law.
+- **`koi_incl`**: Inclination (deg) - Angle between the orbital plane and the plane of the sky.
+- **`koi_teq`**: Equilibrium Temperature (Kelvin) - Estimated temperature of the planet assuming blackbody radiation, Bond albedo of 0.3, and even heat distribution.
+- **`koi_insol`**: Insolation Flux (Earth flux) - Incident stellar flux on the planet relative to the flux received by Earth from the Sun.
+- **`koi_dor`**: Planet-Star Distance over Star Radius - Distance between planet and star at mid-transit, normalized by stellar radius.
+- **`koi_limbdark_mod`**: Limb Darkening Model Name - Reference to the limb-darkening model used.
+- **`koi_ldm_coeff1`, `koi_ldm_coeff2`, `koi_ldm_coeff3`, `koi_ldm_coeff4`**: Limb Darkening Coefficients - Up to four coefficients defining the stellar limb darkening profile used in the transit fit.
+- **`koi_parm_prov`**: KOI Parameter Provenance - Indicates the source or method used to derive the KOI parameters.
+
+### Threshold-Crossing Event (TCE) Information
+Details about the initial detection signal (TCE) from the Transiting Planet Search (TPS) pipeline that led to the KOI designation, including signal strength metrics and data links.
+
+- **`koi_max_sngle_ev`**: Maximum Single Event Statistic - Maximum statistical significance (SES) of an individual transit event in the light curve.
+- **`koi_max_mult_ev`**: Maximum Multiple Event Statistic - Maximum signal-to-noise ratio (MES) found when folding the light curve at trial periods; threshold determines TCE identification.
+- **`koi_model_snr`**: Transit Signal-to-Noise - Transit depth normalized by the mean flux uncertainty during transits.
+- **`koi_count`**: Number of Planets - Number of planet candidates identified in this system.
+- **`koi_num_transits`**: Number of Transits - Number of expected or partially observed transits within the searched light curve (excluding those fully in gaps).
+- **`koi_tce_plnt_num`**: TCE Planet Number - The planet number assigned within the corresponding TCE delivery.
+- **`koi_tce_delivname`**: TCE Delivery Name - Identifier for the TCE delivery from which this KOI's data originates.
+- **`koi_quarters`**: Quarters - Bit string indicating which Kepler quarters were included in the transit search for this KOI.
+- **`koi_trans_mod`**: Transit Model Name - Reference to the transit model used for fitting (e.g., Mandel-Agol).
+- **`koi_model_dof`**: Model Degrees of Freedom (DOF) - Number of degrees of freedom in the transit model fit.
+- **`koi_model_chisq`**: Model Goodness of Fit - Chi-squared (χ²) or reduced chi-squared statistic for the transit model fit.
+- **`koi_datalink_dvr`**: Link to DV Report - Relative path for retrieving the detailed Data Validation report.
+- **`koi_datalink_dvs`**: Link to DV Summary - Relative path for retrieving the Data Validation summary report.
+
+### Stellar Parameters
+Physical properties of the host star (e.g., temperature, radius, mass, metallicity, age), crucial for deriving accurate planetary parameters and understanding the system context.
+
+- **`koi_steff`**: Stellar Effective Temperature (Kelvin) - Photospheric temperature of the host star.
+- **`koi_slogg`**: Stellar Surface Gravity (log10(cm s⁻²)) - Logarithm (base-10) of the gravitational acceleration at the star's surface.
+- **`koi_smet`**: Stellar Metallicity ([Fe/H]) - Logarithm (base-10) of the Iron-to-Hydrogen ratio relative to the Sun.
+- **`koi_srad`**: Stellar Radius (solar radii) - Photospheric radius of the host star.
+- **`koi_smass`**: Stellar Mass (solar mass) - Mass of the host star.
+- **`koi_sage`**: Stellar Age (Gigayears) - Age of the host star.
+- **`koi_sparprov`**: Provenance of Stellar Parameters - Flag indicating the source/method used to determine the stellar parameters (e.g., KIC, SME, SPC, Astero).
+
+### KIC Parameters
+Positional and photometric data for the target star as originally listed in the Kepler Input Catalog (KIC), including magnitudes in various bands.
+
+- **`ra`**: RA (deg) - KIC Right Ascension in decimal degrees.
+- **`dec`**: Dec (deg) - KIC Declination in decimal degrees.
+- **`koi_kepmag`**: Kepler-band (mag) - Apparent magnitude in the Kepler bandpass.
+- **`koi_gmag`**: KIC g'-band mag - Apparent magnitude in g'-band from the KIC.
+- **`koi_rmag`**: KIC r'-band mag - Apparent magnitude in r'-band from the KIC.
+- **`koi_imag`**: KIC i'-band mag - Apparent magnitude in i'-band from the KIC.
+- **`koi_zmag`**: KIC z'-band mag - Apparent magnitude in z'-band from the KIC.
+- **`koi_jmag`**: KIC J-band mag - Apparent magnitude in J-band from 2MASS survey.
+- **`koi_hmag`**: KIC H-band mag - Apparent magnitude in H-band from 2MASS survey.
+- **`koi_kmag`**: KIC K-band mag - Apparent magnitude in K-band from 2MASS survey.
+
+### Pixel-Based KOI Vetting Statistics
+Two pixel analysis methods, flux-weighted centroid and PRF-fit difference images, are used to identify eclipsing binaries causing planetary transit false positives. These methods estimate the source location of the transit signal and compare it to the Kepler Input Catalog (KIC) target star position. For saturated stars, manual inspection of data validation reports is necessary.
+
+- **`koi_fwm_sra`**: FW Source α(OOT) (hours) - Right Ascension (J2000) of the transiting object location calculated from flux-weighted centroids. Affected by crowding.
+- **`koi_fwm_sdec`**: FW Source δ(OOT) (degrees) - Declination (J2000) of the transiting object location calculated from flux-weighted centroids. Affected by crowding.
+- **`koi_fwm_srao`**: FW Δα(OOT) (seconds time) - RA (J2000) flux-weighted centroid shift (In-Transit - Out-Of-Transit).
+- **`koi_fwm_sdeco`**: FW Δδ(OOT) (arcseconds) - Dec (J2000) flux-weighted centroid shift (In-Transit - Out-Of-Transit).
+- **`koi_fwm_prao`**: FW Source Δα(OOT) (seconds time) - Calculated RA offset of the transiting object from the KIC target star location (flux-weighted). Accuracy degrades if source flux falls outside aperture.
+- **`koi_fwm_pdeco`**: FW Source Δδ(OOT) (arcseconds) - Calculated Dec offset of the transiting object from the KIC target star location (flux-weighted). Accuracy degrades if source flux falls outside aperture.
+- **`koi_fwm_stat_sig`**: Flux-Weighted Offset Significance (%) - Statistical significance of the flux-weighted offset. 100% indicates no significant offset (transit likely on target). Accuracy degrades if source flux falls outside aperture.
+- **`koi_dicco_mra`**: PRF ΔαSQ(OOT) (arcseconds) - Mean angular offset in RA between PRF centroids (Difference Image - OOT Image), averaged over quarters.
+- **`koi_dicco_mdec`**: PRF ΔδSQ(OOT) (arcseconds) - Mean angular offset in Dec between PRF centroids (Difference Image - OOT Image), averaged over quarters.
+- **`koi_dicco_msky`**: PRF ΔθSQ(OOT) (arcseconds) - Mean angular offset on sky between PRF centroids (Difference Image - OOT Image), averaged over quarters.
+- **`koi_dikco_mra`**: PRF ΔαSQ(KIC) (arcseconds) - Mean angular offset in RA between PRF centroid (Difference Image) and KIC position, averaged over quarters.
+- **`koi_dikco_mdec`**: PRF ΔδSQ(KIC) (arcseconds) - Mean angular offset in Dec between PRF centroid (Difference Image) and KIC position, averaged over quarters.
+- **`koi_dikco_msky`**: PRF ΔθSQ(KIC) (arcseconds) - Mean angular offset on sky between PRF centroid (Difference Image) and KIC position, averaged over quarters.
+
+# Initial Analysis and Data Exploration
+## Load data from .csv
+```{r}
+koi_data <- read.csv("data/q1_q17_dr25_koi.csv", comment.char = "#", stringsAsFactors = TRUE)
+head(koi_data)
+```
+
+## Initial summary
+Let's start by looking at the summary statistics of the data.
+```{r}
+print(dfSummary(koi_data), method = "render")
+```
+
+## Response variable: koi_pdisposition 
+Let's look at the two disposition variables and see how they compare.
+`koi_disposition` indicate the category of this KOI from the Exoplanet Archive. Current values are CANDIDATE, FALSE POSITIVE, NOT DISPOSITIONED or CONFIRMED. All KOIs marked as CONFIRMED are also listed in the Exoplanet Archive Confirmed Planet table. Designations of CANDIDATE, FALSE POSITIVE, and NOT DISPOSITIONED are taken from the Disposition Using Kepler Data.
+Let's see how many of each disposition there are.
+```{r}
+# Using Exoplanet Archive disposition
+koi_data %>% count(koi_disposition, sort = TRUE)
+```
+
+`koi_pdisposition` flag indicates the most probable explanation for a KOI, with values including FALSE POSITIVE, NOT DISPOSITIONED, and CANDIDATE. False positives can result from eclipsing binary stars, background contamination, stellar variability, or instrumental artifacts.
+Let's see how many of each probable disposition there are.
+```{r}
+# Using Kepler-only disposition
+koi_data %>% count(koi_pdisposition, sort = TRUE)
+```
+
+Now compare the two dispositions to see if they match.
+```{r}
+# Compare the two dispositions
+koi_data %>% count(koi_disposition, koi_pdisposition)
+```
+
+As we can see we have a few cases in which the two dispositions do not match. Specifically, we have a few cases where the disposition is CANDIDATE but the pdisposition is FALSE POSITIVE. Also, there are a few cases where the disposition is CONFIRMED but the pdisposition is FALSE POSITIVE. This is because the pdisposition is based on the Kepler-only pipeline, while the disposition is based on the Exoplanet Archive. Since those cases are rare, we can ignore them in our analysis by removing them from the data.
 
 ```{r}
-dim(koi)
+# Remove only the cases where FALSE POSITIVE doesn't match between dispositions
+koi_data <- koi_data %>%
+  filter(!(koi_disposition == "CONFIRMED" & koi_pdisposition == "FALSE POSITIVE") &
+    !(koi_disposition == "FALSE POSITIVE" & koi_pdisposition == "CANDIDATE"))
 ```
+
+For the analysis, we will use the `koi_pdisposition` variable as the response variable since it is more accurate and consistent for statistical analysis.
+
+## Factor variables
+Let's transform the factor variables into factors and create a corresponding variable in range 0-1.
 ```{r}
-summary(koi)
+factor_columns <- c(
+  "koi_disposition", "koi_pdisposition",
+  "koi_fpflag_nt", "koi_fpflag_ss", "koi_fpflag_co", "koi_fpflag_ec",
+  "koi_fittype", "koi_sparprov", "koi_comment"
+)
+
+# Check which of these columns actually exist in our dataframe
+factor_columns_exist <- factor_columns[factor_columns %in% names(koi_data)]
+
+# Use mutate() and across() to apply as.factor() to the existing columns
+# 'all_of()' is used to ensure it only tries to convert columns present
+# in the 'factor_columns_exist' vector.
+koi_data <- koi_data %>%
+  mutate(across(all_of(factor_columns_exist), as.factor))
+
+# Verify the conversion
+print("Verifying column types after dplyr conversion:")
+str(koi_data[, factor_columns_exist, drop = FALSE]) # Show structure of converted columns
+```
+
+## Null values analysis
+Let's look at the number of NAs per column. We will only show the columns with more than 80% NAs.
+```{r}
+# Count NAs per column and show those with more than 80% NAs
+na_counts <- data.frame(
+  Column = names(koi_data),
+  NAs = colSums(is.na(koi_data))
+) %>%
+  filter(NAs > 0.8 * nrow(koi_data)) %>%
+  arrange(desc(NAs))
+
+knitr::kable(na_counts)
+```
+
+We can remove those columns with more than 80% NAs since they are not useful for our analysis.
+```{r}
+# Remove columns with more than 80% NAs
+koi_data <- koi_data %>% select(-all_of(na_counts$Column))
+```
+
+## Missingness visualization
+Show missingness visualization only for columns with more than 2% of NAs.
+```{r}
+vis_miss(
+  koi_data %>%
+    select_if(~ (sum(is.na(.)) > 0.02 * nrow(koi_data))),
+  warn_large_data = FALSE
+)
+```
+
+## Final summary
+```{r}
+print(dfSummary(koi_data), method = "render")
+```
+
+## Save data
+Save Rda data of the data exploration to the data folder.
+```{r}
+saveRDS(koi_data, "data/Rdas/koi_data.Rda")
 ```

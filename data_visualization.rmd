@@ -1,0 +1,265 @@
+---
+title: "KOI analysis - Data visualization"
+author: "Davide Tonetto"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    theme: cosmo          
+    highlight: tango      
+    toc: true             
+    toc_float: true       
+    toc_depth: 3          
+    number_sections: true 
+    df_print: paged       
+    code_folding: show    
+    fig_width: 10         
+    fig_height: 6         
+---
+
+```{r setup, include=FALSE}
+# Set CRAN mirror
+options(repos = c(CRAN = "https://cloud.r-project.org"))
+
+# Function to install and load required packages
+packages <- c("tidyverse", "ggcorrplot", "ggfortify", "factoextra", "GGally")
+
+# Install packages not yet installed
+installed_packages <- packages %in% rownames(installed.packages())
+if (any(!installed_packages)) {
+  install.packages(packages[!installed_packages])
+}
+
+# Load all required packages
+invisible(lapply(packages, library, character.only = TRUE))
+
+# Set global chunk options
+knitr::opts_chunk$set(
+  warning = FALSE, # Don't show warnings in the output
+  message = FALSE, # Don't show package loading messages
+  echo = TRUE, # Show R code chunks in the output
+  fig.width = 10, # Set default figure width
+  fig.height = 6 # Set default figure height
+)
+```
+
+# Data visualization
+## Load clean data
+Load the cleaned data from the previous steps done in **`data_preparation.rmd`** file.
+```{r}
+koi_data <- readRDS("data/Rdas/koi_data.Rda")
+```
+
+## Correlation matrix
+Create a correlation matrix to understand the relationships between variables.
+```{r}
+# Select only numeric columns for correlation
+numerical_cols <- koi_data %>%
+  select(
+    koi_period, koi_duration, koi_depth, koi_prad, koi_teq,
+    koi_insol, koi_model_snr, koi_steff, koi_slogg, koi_srad,
+    koi_smass, koi_impact, koi_ror, koi_srho, koi_sma, koi_incl,
+    koi_dor, koi_ldm_coeff1, koi_ldm_coeff2, koi_smet
+  ) %>%
+  drop_na()
+# Calculate the correlation matrix
+cor_matrix <- cor(numerical_cols)
+# Visualize the correlation matrix
+ggcorrplot(cor_matrix,
+  hc.order = TRUE, # Hierarchical clustering
+  type = "upper", # Show upper triangle
+  lab = TRUE, # Show correlation coefficients
+  lab_size = 3, # Adjust label size
+  method = "circle", # Use circles to represent correlation
+  colors = c("#6D9EC1", "white", "#E46726")
+) # Specify color scheme
+```
+
+The correlation matrix shows us that there are some strong relationships between some variables. For example, the correlation between `koi_period` and `koi_duration` is 0.99, indicating a very strong positive relationship. This suggests that as the orbital period increases, the transit duration also tends to increase.
+
+## PCA analysis
+Perform PCA on the selected numerical variables.
+```{r}
+numerical_pca_cols <- koi_data %>%
+  select(
+    koi_period, koi_duration, koi_depth, koi_prad, koi_teq,
+    koi_insol, koi_model_snr, koi_steff, koi_slogg, koi_srad,
+    koi_smass, koi_impact, koi_ror, koi_srho, koi_sma, koi_incl,
+    koi_dor, koi_ldm_coeff1, koi_ldm_coeff2, koi_smet
+  )
+
+disposition_col <- koi_data$koi_pdisposition
+pca_data_complete <- numerical_pca_cols %>% drop_na()
+disposition_complete <- disposition_col[complete.cases(numerical_pca_cols)]
+
+if (length(disposition_complete) != nrow(pca_data_complete)) {
+  stop("Mismatch between data rows and disposition labels after handling NAs.")
+}
+
+# Scale the Data (Standardize)
+scaled_pca_data <- scale(pca_data_complete)
+pca_result <- prcomp(scaled_pca_data, center = FALSE, scale. = FALSE)
+```
+### PCA Summary
+Shows proportion of variance explained by each component
+```{r}
+summary(pca_result)
+```
+
+```{r}
+fviz_eig(pca_result, addlabels = TRUE)
+```
+
+From the eigenvalues, we can see that the first two principal components explain approximately 32% of the total variance. This suggests that the first two principal components does not capture much of the variability in the data. We need the first 11 PCA to get over 90% of the variance, suggesting that the underlying structure of the data (based on these numerical variables) is quite complex. There isn't a simple, low-dimensional linear subspace that captures most of the information.
+
+### PCA Loadings
+Show how original variables contribute to each PC using rotation matrix.
+The loadings tell us how much each original variable contributes to each principal component. Larger absolute values mean stronger influence. The sign (+/-) indicates the direction of the correlation.
+```{r}
+print(pca_result$rotation)
+```
+
+Visualize Loadings for PC1 and PC2
+```{r}
+print("Loadings Plot for PC1 vs PC2:")
+fviz_pca_var(pca_result,
+  col.var = "contrib", # Color by contributions
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+  repel = TRUE
+)
+```
+
+Analysis of the component loadings revealed distinct patterns captured by the principal components.
+
+- PC1 (~17% Var): Seems to represent a contrast between orbital size/period and temperature. It has high positive loadings for `koi_period`, `koi_sma`, `koi_dor` (larger orbits) and high negative loadings for `koi_teq` (cooler temperatures associated with larger orbits). Stellar properties (`koi_slogg`, `koi_steff`, `koi_smass`) also contribute moderately.
+- PC2 (~15% Var): Also strongly related to orbital size/period (positive loadings for `koi_period`, `koi_sma`, `koi_dor`) but also strongly incorporates stellar temperature (`koi_steff` positive loading) and limb darkening (`koi_ldm_coeff1` negative, `koi_ldm_coeff2` positive).
+- PC3 (~14% Var): Primarily related to stellar properties, contrasting stellar radius/insolation (`koi_srad`, `koi_insol` positive) with stellar surface gravity (`koi_slogg` negative). Orbital size variables also contribute moderately.
+- PC4 (~12% Var): Dominated by relative planet size and transit geometry, with high negative loadings for `koi_prad`, `koi_ror` (planet/star radius ratio), and `koi_impact`.
+- PC5 (~8% Var): Represents the transit signal strength, dominated by high negative loadings for `koi_depth` and `koi_model_snr`.
+- Later PCs: Capture more nuanced relationships. PC6 relates transit duration and stellar density (`koi_duration`, `koi_srho`). PC7 involves insolation and metallicity (`koi_insol`, `koi_smet`). PC19/PC20 seem to isolate specific period/axis relationships and limb darkening effects.
+
+These interpretations suggest that the primary sources of variation in the dataset relate to the transit signal strength, stellar characteristics, transit geometry, and orbital properties.
+
+### PCA Plots
+Combine PCA results with the disposition information and plot the results.
+```{r}
+pca_plot_data <- data.frame(
+  PC1 = pca_result$x[, 1],
+  PC2 = pca_result$x[, 2],
+  Disposition = disposition_complete
+)
+
+autoplot(pca_result,
+  data = data.frame(pca_data_complete, Disposition = disposition_complete), colour = "Disposition",
+  loadings = TRUE, loadings.colour = "blue",
+  loadings.label = TRUE, loadings.label.size = 3
+) +
+  labs(title = "PCA Plot with Loadings") +
+  theme_minimal()
+```
+
+```{r}
+fviz_pca_ind(pca_result,
+  geom.ind = "point", # show points only (but can use "text")
+  col.ind = disposition_complete, # color by groups
+  palette = "jco", # Journal color palette
+  addEllipses = TRUE, # Concentration ellipses
+  legend.title = "Disposition"
+) +
+  ggtitle("PCA Plot of Individuals")
+```
+
+```{r}
+pca_scores_df_7 <- data.frame(pca_result$x[, 1:7], Disposition = disposition_complete)
+
+ggpairs(pca_scores_df_7,
+  columns = 1:7, # Specify columns for the PC dimensions
+  aes(color = Disposition, alpha = 0.6), # Map color and transparency to Disposition
+  upper = list(continuous = wrap("cor", size = 3)), # Show correlation in upper panels
+  lower = list(continuous = wrap("points", size = 1)), # Show scatter plots in lower panels
+  diag = list(continuous = wrap("densityDiag", alpha = 0.5)), # Show density plots on diagonal
+  title = "Pairs Plot Matrix of First 7 Principal Components"
+) +
+  theme_minimal() + # Apply a theme
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+## Variables Plots
+Explore relationships between variables and disposition.
+```{r}
+ggplot(
+  koi_data %>% filter(!is.na(koi_smet), !is.na(koi_prad), !is.na(koi_pdisposition)),
+  aes(x = koi_smet, y = koi_prad, color = koi_pdisposition)
+) +
+  geom_point(alpha = 0.6, size = 1.5) +
+  scale_y_log10() + # Planet radius often plotted on log scale
+  labs(
+    title = "Stellar Metallicity vs. Planetary Radius",
+    x = "Stellar Metallicity [Fe/H] (koi_smet)",
+    y = "Planetary Radius [Earth Radii] (koi_prad) (log scale)",
+    color = "Pipeline Disposition"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+ggplot(koi_data %>% filter(!is.na(koi_prad)), aes(x = koi_prad)) +
+  geom_histogram(binwidth = 0.1) + # Adjust binwidth as needed
+  scale_x_log10() +
+  labs(title = "Distribution of Planetary Radii", x = "Planetary Radius [Earth Radii] (log scale)", y = "Count")
+
+ggplot(koi_data %>% filter(!is.na(koi_period)), aes(x = koi_period)) +
+  geom_histogram() + # ggplot chooses bins, or set binwidth/bins
+  scale_x_log10() +
+  labs(title = "Distribution of Orbital Periods", x = "Orbital Period [Days] (log scale)", y = "Count")
+```
+
+Period vs. Radius: A classic plot in exoplanet studies. Color by disposition.
+```{r}
+ggplot(
+  koi_data %>% filter(!is.na(koi_prad), !is.na(koi_period)),
+  aes(x = koi_period, y = koi_prad, color = koi_disposition)
+) +
+  geom_point(alpha = 0.5, size = 1.5) + # Adjust alpha/size
+  scale_x_log10() +
+  scale_y_log10() +
+  labs(
+    title = "Orbital Period vs. Planetary Radius",
+    x = "Orbital Period [Days] (log scale)",
+    y = "Planetary Radius [Earth Radii] (log scale)",
+    color = "Disposition"
+  ) +
+  theme_minimal() # Or other themes
+```
+
+Insolation/Temperature vs. Radius: Explore potential atmospheric regimes.
+```{r}
+ggplot(
+  koi_data %>% filter(!is.na(koi_prad), !is.na(koi_insol)),
+  aes(x = koi_insol, y = koi_prad, color = koi_disposition)
+) +
+  geom_point(alpha = 0.5) +
+  scale_x_log10() + # Insolation often spans orders of magnitude
+  scale_y_log10() +
+  labs(
+    title = "Insolation Flux vs. Planetary Radius",
+    x = "Insolation Flux [Earth Flux] (log scale)",
+    y = "Planetary Radius [Earth Radii] (log scale)",
+    color = "Disposition"
+  )
+```
+
+Stellar Temperature vs. Stellar Radius/Mass: Explore stellar properties (like an H-R diagram).
+```{r}
+ggplot(
+  koi_data %>% filter(!is.na(koi_steff), !is.na(koi_srad)),
+  aes(x = koi_steff, y = koi_srad)
+) +
+  geom_point(alpha = 0.3) +
+  scale_x_reverse() + # Convention for H-R diagrams
+  scale_y_log10() +
+  labs(
+    title = "Stellar Properties (H-R Diagram Analog)",
+    x = "Stellar Effective Temperature [K]",
+    y = "Stellar Radius [Solar Radii] (log scale)"
+  )
+```

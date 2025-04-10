@@ -1,0 +1,283 @@
+---
+title: "KOI analysis - Model using PCA"
+author: "Davide Tonetto"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    theme: cosmo          
+    highlight: tango      
+    toc: true             
+    toc_float: true       
+    toc_depth: 3          
+    number_sections: true 
+    df_print: paged       
+    code_folding: show    
+    fig_width: 10         
+    fig_height: 6         
+---
+
+```{r setup, include=FALSE}
+# Set CRAN mirror
+options(repos = c(CRAN = "https://cloud.r-project.org"))
+
+# Function to install and load required packages
+packages <- c("tidyverse", "caret", "randomForest", "pROC", "car")
+
+# Install packages not yet installed
+installed_packages <- packages %in% rownames(installed.packages())
+if (any(!installed_packages)) {
+  install.packages(packages[!installed_packages])
+}
+
+# Load all required packages
+invisible(lapply(packages, library, character.only = TRUE))
+
+# Set global chunk options
+knitr::opts_chunk$set(
+  warning = FALSE, # Don't show warnings in the output
+  message = FALSE, # Don't show package loading messages
+  echo = TRUE, # Show R code chunks in the output
+  fig.width = 10, # Set default figure width
+  fig.height = 6 # Set default figure height
+)
+```
+
+# Load data
+Load the cleaned data from **`data_preparation.rmd`**.
+```{r}
+koi_data <- readRDS("data/Rdas/koi_data.Rda")
+```
+
+Drop missing values for the interested columns.
+```{r}
+koi_data <- koi_data %>%
+  drop_na(
+    koi_period, koi_duration, koi_depth, koi_prad, koi_teq,
+    koi_insol, koi_model_snr, koi_steff, koi_slogg, koi_srad,
+    koi_smass, koi_impact, koi_ror, koi_srho, koi_sma, koi_incl,
+    koi_dor, koi_ldm_coeff1, koi_ldm_coeff2, koi_smet
+  )
+```
+
+## Split data in training and test sets
+```{r}
+# Split data into training and test sets with stratification
+set.seed(42)
+train_indices <- createDataPartition(koi_data$koi_pdisposition, p = 0.8, list = FALSE)
+train_data <- koi_data[train_indices, ]
+test_data <- koi_data[-train_indices, ]
+```
+
+Separate features and target.
+```{r}
+target_variable_name <- "koi_pdisposition"
+predictor_variable_names <- koi_data %>%
+  select(
+    koi_period, koi_duration, koi_depth, koi_prad, koi_teq,
+    koi_insol, koi_model_snr, koi_steff, koi_slogg, koi_srad,
+    koi_smass, koi_impact, koi_ror, koi_srho, koi_sma, koi_incl,
+    koi_dor, koi_ldm_coeff1, koi_ldm_coeff2, koi_smet
+  ) %>%
+  names()
+
+train_predictors <- train_data[, predictor_variable_names]
+train_target <- train_data[[target_variable_name]]
+
+test_predictors <- test_data[, predictor_variable_names]
+test_target <- test_data[[target_variable_name]]
+```
+
+# PCA analysis
+## Train PCA model
+Train the PCA model on the training data.
+```{r}
+train_predictors <- scale(train_predictors)
+pca_fit_train <- prcomp(train_predictors, center = FALSE, scale. = FALSE)
+```
+
+## Transform Data using PCA Fit
+Transform the training and test data using the PCA fit.
+```{r}
+train_pcs <- as.data.frame(predict(pca_fit_train, newdata = train_predictors))
+test_pcs <- as.data.frame(predict(pca_fit_train, newdata = test_predictors))
+```
+
+## Select Number of Principal Components (PCs)
+From **`data_visualization.rmd`**, we know that the first 11 PCs explain 90% of the variance.
+```{r}
+num_pcs_to_keep <- 11
+train_pcs_selected <- train_pcs[, 1:num_pcs_to_keep]
+test_pcs_selected <- test_pcs[, 1:num_pcs_to_keep]
+```
+
+Final dataset for modelling:
+```{r}
+train_data_final <- cbind(train_pcs_selected, target = train_target)
+test_data_final <- cbind(test_pcs_selected, target = test_target)
+
+# Convert factor levels to R-friendly names
+train_data_final$target <- factor(train_data_final$target,
+  levels = c("CANDIDATE", "FALSE POSITIVE"),
+  labels = c("candidate", "false_positive")
+)
+test_data_final$target <- factor(test_data_final$target,
+  levels = c("CANDIDATE", "FALSE POSITIVE"),
+  labels = c("candidate", "false_positive")
+)
+
+# names(train_data_final)[names(train_data_final) == "koi_pdisposition"] <- target_variable_name
+# names(test_data_final)[names(test_data_final) == "koi_pdisposition"] <- target_variable_name
+```
+
+# Models
+## Random Forest
+Let's train a Random Forest model using the PCA-transformed data.
+```{r}
+# Define training control (e.g., cross-validation)
+train_control <- trainControl(method = "cv", number = 10, classProbs = TRUE, summaryFunction = twoClassSummary) # Example for binary classification
+
+# Train a model (e.g., Random Forest)
+model_rf_pca <- train(target ~ ., # Formula using target and all PCs in the data frame
+  data = train_data_final,
+  method = "rf", # Random Forest
+  trControl = train_control,
+  metric = "ROC"
+) # Optimize for AUC
+
+# Print model summary
+print(model_rf_pca)
+
+# Make predictions on the test set
+predictions <- predict(model_rf_pca, newdata = test_data_final)
+prob_predictions <- predict(model_rf_pca, newdata = test_data_final, type = "prob")
+```
+
+### Model performance
+The following table shows the confusion matrix for the Random Forest model.
+```{r}
+cm <- confusionMatrix(predictions, test_data_final$target)
+cm
+```
+
+Let's plot the confusion matrix.
+```{r}
+cm_data <- as.data.frame(cm$table)
+
+# Create heatmap
+ggplot(cm_data, aes(x = Reference, y = Prediction, fill = Freq)) +
+  geom_tile() +
+  geom_text(aes(label = Freq), color = "white", size = 8) +
+  scale_fill_gradient(low = "#2C3E50", high = "#E74C3C") +
+  theme_minimal() +
+  labs(
+    title = "Random Forest Confusion Matrix Heatmap",
+    x = "Actual",
+    y = "Predicted"
+  ) +
+  theme(
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14),
+    plot.title = element_text(size = 16, face = "bold")
+  )
+```
+
+Now the ROC curve.
+```{r}
+# Create ROC curve
+roc_curve <- roc(test_data_final$target, prob_predictions[, "candidate"])
+# Plot ROC curve
+plot(roc_curve, main = "ROC Curve", col = "blue", lwd = 2)
+```
+
+### Summary
+The model built with PCA features is significantly better than random guessing but shows only "fair" predictive power overall (Kappa ~0.25).
+
+- Strength: It excels at finding true candidates (High Sensitivity).
+- Weakness: It performs poorly at identifying false_positives, incorrectly labeling many of them as candidates (Low Specificity, leading to many False Positives).
+
+In conclusion, while it captures most real candidates, predictions of candidate have relatively low confidence (Low Precision), whereas predictions of false_positive are more reliable (Higher Negative Predictive Value).
+Implications:
+
+If the goal is discovery (finding as many potential candidates as possible for follow-up, even if many are false alarms), this model might be useful due to its high sensitivity. If the goal is high confidence classification (being sure that predicted candidates are indeed candidates), this model is less suitable due to its low precision.
+
+## Logistic Regression
+Let's train a Logistic Regression model using the PCA-transformed data.
+```{r}
+glm_model_pca <- glm(target ~ .,
+  data = train_data_final,
+  family = binomial(link = "logit")
+)
+
+summary(glm_model_pca)
+```
+1. Coefficients & Significance (Pr(>|z|)):
+Most of the principal components included (PC1, PC2, PC3, PC4, PC6, PC8, PC9, PC10, PC11) have very small p-values (< 2e-16, ***, **). This indicates they have a statistically significant relationship with the log-odds of the target variable (likely 'candidate' vs 'false_positive') after accounting for the other PCs in the model.
+PC5 and PC7 are not statistically significant in this model (p-values 0.23 and 0.42). This suggests that, given the other PCs, they don't add significant predictive power in this specific linear combination.
+The Estimate column shows the direction and magnitude of the effect on the log-odds. For example, PC1 has a large negative coefficient (-9.37), meaning an increase in PC1 strongly decreases the log-odds of the positive class. PC4 has a large positive coefficient (13.43), strongly increasing the log-odds. PC11 has a very large negative coefficient (-19.95).
+2. Model Fit (Deviance & AIC):
+The drop from Null deviance (8797.3) to Residual deviance (6101.6) shows that the model including the PCs explains a significant amount of the variation compared to a model with just an intercept.
+AIC (6125.6) is an information criterion useful for comparing different models (lower is generally better), but less interpretable on its own.
+In short, the summary shows that most of the first 11 PCs are statistically useful predictors within the logistic regression framework.
+
+### Model performance
+Now test the model on the test set.
+```{r}
+predicted_probabilities <- predict(glm_model_pca, newdata = test_data_final, type = "response")
+
+# Convert predicted probabilities to binary predictions
+threshold <- 0.5
+# Identify the positive class level (usually the second level)
+positive_class <- levels(train_data_final$target)[2]
+negative_class <- levels(train_data_final$target)[1]
+
+predicted_classes <- ifelse(predicted_probabilities > threshold, positive_class, negative_class)
+# Convert character predictions back to a factor with the same levels as the original target
+predicted_classes <- factor(predicted_classes, levels = levels(test_data_final$target))
+
+
+# Create a confusion matrix
+cm <- confusionMatrix(
+  data = predicted_classes,
+  reference = test_data_final$target,
+  positive = positive_class
+) 
+cm
+```
+
+Let's plot the confusion matrix.
+```{r}
+cm_data <- as.data.frame(cm$table)
+
+# Create heatmap
+ggplot(cm_data, aes(x = Reference, y = Prediction, fill = Freq)) +
+  geom_tile() +
+  geom_text(aes(label = Freq), color = "white", size = 8) +
+  scale_fill_gradient(low = "#2C3E50", high = "#E74C3C") +
+  theme_minimal() +
+  labs(
+    title = "Logistic Regression Confusion Matrix Heatmap",
+    x = "Actual",
+    y = "Predicted"
+  ) +
+  theme(
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14),
+    plot.title = element_text(size = 16, face = "bold")
+  )
+```
+
+Now the ROC curve.
+```{r}
+# Create ROC curve
+roc_curve <- roc(test_data_final$target, predicted_probabilities)
+# Plot ROC curve
+plot(roc_curve, main = "ROC Curve", col = "blue", lwd = 2)
+```
+
+### Summary
+The logistic regression model using the first 11 principal components shows that most of these components are statistically significant predictors of the outcome (p < 0.05). When evaluating this model with 'false_positive' defined as the positive class, it achieves an overall accuracy of about 73% and moderate agreement (Kappa ≈ 0.45). Its main strength is correctly identifying true candidates (Specificity ≈ 98%) and having high confidence when it predicts 'false_positive' (Precision ≈ 96%). However, its major weakness is missing many actual false positives (Sensitivity ≈ 46%). This performance profile, emphasizing high specificity over sensitivity, is the inverse of what was seen when 'candidate' was the positive class, indicating a model that is generally hesitant to label something as a 'false_positive' unless it's very confident.
+
+### Residual analysis.
+```{r}
+residualPlots(glm_model_pca)
+```
