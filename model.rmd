@@ -1,0 +1,998 @@
+---
+title: "KOI analysis - Logistic Regression Model"
+author: "Davide Tonetto"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    theme: cosmo
+    highlight: tango
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+    df_print: paged
+    code_folding: show
+    fig_width: 10
+    fig_height: 6
+---
+
+```{r setup, include=FALSE}
+# Set CRAN mirror
+options(repos = c(CRAN = "[https://cloud.r-project.org](https://cloud.r-project.org)"))
+
+# Function to install and load required packages
+packages <- c("tidyverse", "caret", "pROC", "car", "ggplot2", "mgcv", "glmnet")
+
+# Install packages not yet installed
+installed_packages <- packages %in% rownames(installed.packages())
+if (any(!installed_packages)) {
+  install.packages(packages[!installed_packages])
+}
+
+# Load all required packages
+invisible(lapply(packages, library, character.only = TRUE))
+
+# Set global chunk options
+knitr::opts_chunk$set(
+  warning = FALSE, # Don't show warnings in the output
+  message = FALSE, # Don't show package loading messages
+  echo = TRUE, # Show R code chunks in the output
+  fig.width = 10, # Set default figure width
+  fig.height = 6 # Set default figure height
+)
+
+# Helper function for mode calculation
+calculate_mode <- function(x, na.rm = FALSE) {
+  if (na.rm) {
+    x <- x[!is.na(x)]
+  }
+  ux <- unique(x)
+  if (length(ux) == 0) {
+    return(NA_character_)
+  } # Handle empty or all-NA input
+  ux[which.max(tabulate(match(x, ux)))]
+}
+```
+
+# Load data
+Load the cleaned data from **`data_preparation.rmd`**. Assumes `koi_data.Rda` contains the necessary columns.
+```{r load-data}
+data_file_path <- "data/Rdas/koi_data.Rda"
+koi_data_raw <- readRDS(data_file_path)
+```
+
+# Logistic regression models
+## Select columns
+Define target and predictor columns. **Review this list carefully.**
+```{r select-columns}
+target_variable_name <- "koi_pdisposition" # Or 'koi_disposition'
+predictor_cols <- c(
+  # Numeric Predictors (Examples)
+  "koi_period", "koi_duration", "koi_depth", "koi_prad", "koi_teq",
+  "koi_insol", "koi_model_snr", "koi_steff", "koi_slogg", "koi_srad",
+  "koi_smass", "koi_impact", "koi_ror", "koi_srho", "koi_sma", "koi_incl",
+  "koi_dor", "koi_ldm_coeff1", "koi_ldm_coeff2", "koi_smet"
+)
+selected_cols <- c(target_variable_name, predictor_cols)
+
+# Check which selected columns actually exist in the loaded data
+selected_cols_exist <- selected_cols[selected_cols %in% names(koi_data_raw)]
+missing_cols <- setdiff(selected_cols, selected_cols_exist)
+if (length(missing_cols) > 0) {
+  print(paste("Warning: The following selected columns were not found:", paste(missing_cols, collapse = ", ")))
+}
+if (!target_variable_name %in% selected_cols_exist) {
+  stop(paste("Target variable", target_variable_name, "not found in the data!"))
+}
+
+# Subset the data
+koi_data <- koi_data_raw[, selected_cols_exist]
+print(paste("Selected", ncol(koi_data), "columns for analysis."))
+```
+
+## Split data into training and test sets
+Stratified split based on the target variable.
+```{r split-data}
+set.seed(42) # for reproducibility
+train_indices <- createDataPartition(koi_data[[target_variable_name]], p = 0.8, list = FALSE)
+train_data <- koi_data[train_indices, ]
+test_data <- koi_data[-train_indices, ]
+print(paste("Training set size:", nrow(train_data)))
+print(paste("Test set size:", nrow(test_data)))
+```
+
+## Handle Missing Values (NA) - AFTER Splitting
+Apply simple median/mode imputation. **Consider more advanced methods if NAs are numerous or potentially non-random.**
+```{r handle-nas}
+# --- Impute Training Data ---
+numeric_predictors_train <- names(train_data)[sapply(train_data, is.numeric)]
+factor_predictors_train <- names(train_data)[sapply(train_data, function(x) is.character(x) || is.factor(x))]
+factor_predictors_train <- setdiff(factor_predictors_train, target_variable_name)
+
+# Impute numeric with median (calculated from training data)
+train_medians <- list()
+for (col in numeric_predictors_train) {
+  if (any(is.na(train_data[[col]]))) {
+    median_val <- median(train_data[[col]], na.rm = TRUE)
+    if (is.na(median_val)) {
+      median_val <- 0
+      print(paste("Warning: Train median NA for", col))
+    }
+    train_data[[col]][is.na(train_data[[col]])] <- median_val
+    train_medians[[col]] <- median_val # Store median for applying to test set
+  }
+}
+
+# Impute character/factor with mode (calculated from training data)
+train_modes <- list()
+for (col in factor_predictors_train) {
+  if (any(is.na(train_data[[col]]))) {
+    mode_val <- calculate_mode(train_data[[col]], na.rm = TRUE)
+    if (is.na(mode_val)) {
+      mode_val <- "Missing"
+      print(paste("Warning: Train mode NA for", col))
+    }
+    train_data[[col]][is.na(train_data[[col]])] <- mode_val
+    train_modes[[col]] <- mode_val # Store mode for applying to test set
+  }
+}
+
+# Remove rows with NA in target (TRAIN)
+rows_before_na_target_train <- nrow(train_data)
+train_data <- train_data %>% filter(!is.na(.data[[target_variable_name]]))
+if (nrow(train_data) < rows_before_na_target_train) print("Removed rows with NA target in TRAIN")
+
+# --- Impute Test Data (using values from training data) ---
+for (col in names(train_medians)) {
+  if (col %in% names(test_data) && any(is.na(test_data[[col]]))) {
+    test_data[[col]][is.na(test_data[[col]])] <- train_medians[[col]]
+    # print(paste("Imputed NAs in TEST:", col))
+  }
+}
+# Impute character/factor with *training* mode
+for (col in names(train_modes)) {
+  if (col %in% names(test_data) && any(is.na(test_data[[col]]))) {
+    test_data[[col]][is.na(test_data[[col]])] <- train_modes[[col]]
+    # print(paste("Imputed NAs in TEST:", col))
+  }
+}
+# Handle any remaining NAs in test set predictors if medians/modes couldn't be calculated or applied
+na_check_test <- colSums(is.na(test_data %>% select(-all_of(target_variable_name))))
+if (any(na_check_test > 0)) {
+  print("Warning: NAs still present in test set predictors after imputation:")
+  print(na_check_test[na_check_test > 0])
+  # Consider removing these test rows or using a more robust imputation
+  test_data <- test_data[complete.cases(test_data %>% select(-all_of(target_variable_name))), ]
+  print("Removed test rows with remaining NAs in predictors.")
+}
+
+# Remove rows with NA in target (TEST)
+rows_before_na_target_test <- nrow(test_data)
+test_data <- test_data %>% filter(!is.na(.data[[target_variable_name]]))
+if (nrow(test_data) < rows_before_na_target_test) print("Removed rows with NA target in TEST")
+```
+
+## Convert Predictors and Target to Factors
+Ensure categorical predictors and the target variable are factors with consistent levels.
+```{r convert-factors}
+factor_cols_to_convert <- c(
+  "koi_fpflag_nt", "koi_fpflag_ss", "koi_fpflag_co", "koi_fpflag_ec" # Flags
+)
+factor_cols_exist_train <- factor_cols_to_convert[factor_cols_to_convert %in% names(train_data)]
+
+# Convert predictor factors in training data
+if (length(factor_cols_exist_train) > 0) {
+  train_data <- train_data %>%
+    mutate(across(all_of(factor_cols_exist_train), as.factor))
+  print(paste("Converted predictor(s) to factor in train data:", paste(factor_cols_exist_train, collapse = ", ")))
+}
+
+# Convert predictor factors in test data (using levels from training data if possible)
+factor_cols_exist_test <- factor_cols_to_convert[factor_cols_to_convert %in% names(test_data)]
+if (length(factor_cols_exist_test) > 0) {
+  for (col in factor_cols_exist_test) {
+    # Ensure levels in test match train, adding if necessary
+    train_levels <- levels(train_data[[col]])
+    test_data[[col]] <- factor(test_data[[col]], levels = train_levels)
+  }
+  print(paste("Converted predictor(s) to factor in test data:", paste(factor_cols_exist_test, collapse = ", ")))
+}
+
+# Convert target variable to factor with desired levels and labels
+train_data[[target_variable_name]] <- factor(train_data[[target_variable_name]],
+  levels = c("CANDIDATE", "FALSE POSITIVE"),
+  labels = c("candidate", "false_positive")
+)
+test_data[[target_variable_name]] <- factor(test_data[[target_variable_name]],
+  levels = c("CANDIDATE", "FALSE POSITIVE"),
+  labels = c("candidate", "false_positive")
+)
+
+# Define positive class based on the new factor levels
+positive_class <- levels(train_data[[target_variable_name]])[2]
+if (is.na(positive_class)) stop("Could not determine positive class level after factoring.")
+print(paste("Positive class for evaluation:", positive_class))
+
+# Check levels of predictor factors
+for (var in factor_cols_exist_train) {
+  print(paste("Levels in", var, "(Train):"))
+  print(table(train_data[[var]]))
+}
+```
+
+## Scale Numerical Predictors
+Scale numeric predictors AFTER splitting and handling NAs/factors. Fit scaler only on training data.
+```{r scale-numerics}
+numeric_predictors_final <- names(train_data)[sapply(train_data, is.numeric)]
+
+# Check for zero variance columns before scaling
+nzv <- nearZeroVar(train_data[, numeric_predictors_final], saveMetrics = TRUE)
+cols_to_scale <- rownames(nzv)[!nzv$zeroVar]
+if (length(cols_to_scale) < length(numeric_predictors_final)) {
+  print("Warning: Found zero-variance numeric columns, excluding from scaling:")
+  print(rownames(nzv)[nzv$zeroVar])
+}
+
+if (length(cols_to_scale) > 0) {
+  scaler <- preProcess(train_data[, cols_to_scale], method = c("center", "scale"))
+  train_data_scaled <- predict(scaler, train_data)
+  test_data_scaled <- predict(scaler, test_data)
+  print(paste("Scaled numeric predictors:", paste(cols_to_scale, collapse = ", ")))
+} else {
+  print("No non-zero variance numeric predictors found to scale.")
+  train_data_scaled <- train_data
+  test_data_scaled <- test_data
+}
+```
+
+## Model Fitting
+Define the formula and fit the GLM.
+```{r model-fitting}
+glm_original_formula <- as.formula(paste(target_variable_name, "~ ."))
+print(paste("Using formula:", deparse(glm_original_formula)))
+
+glm_original_model <- glm(glm_original_formula,
+  data = train_data_scaled,
+  family = binomial(link = "logit")
+)
+
+summary(glm_original_model)
+```
+
+## Model Performance
+Predict on the test set and evaluate.
+```{r model-performance}
+original_probs <- predict(glm_original_model, newdata = test_data_scaled, type = "response")
+# Ensure probabilities are valid
+original_probs <- pmax(pmin(original_probs, 1 - 1e-15), 1e-15)
+
+# Convert probabilities to class predictions using a 0.5 threshold
+threshold <- 0.5
+# Use the levels from the *test* data target factor for creating prediction factor
+test_target_levels <- levels(test_data_scaled[[target_variable_name]])
+negative_class <- test_target_levels[1] # Should be 'candidate'
+# Note: positive_class was defined earlier based on train_data levels
+
+original_preds <- factor(ifelse(original_probs > threshold, positive_class, negative_class),
+  levels = test_target_levels
+)
+
+test_target_factor <- test_data_scaled[[target_variable_name]]
+
+cm <- confusionMatrix(original_preds,
+  test_target_factor,
+  positive = positive_class
+) # Ensure positive class is correctly specified
+cm
+```
+
+Plot confusion matrix
+```{r model-performance-heatmap}
+cm_data <- as.data.frame(cm$table)
+# Create heatmap
+ggplot(cm_data, aes(x = Reference, y = Prediction, fill = Freq)) +
+  geom_tile(colour = "white", linewidth = 0.5) + # Add lines between tiles
+  geom_text(aes(label = Freq), color = "white", size = 6) + # Adjust text size
+  # Use a color scheme less prone to issues for colorblindness if possible
+  scale_fill_gradient(low = "lightblue", high = "darkblue", name = "Frequency") +
+  theme_minimal(base_size = 12) + # Set base font size
+  labs(
+    title = "Confusion Matrix Heatmap", # Corrected title
+    x = "Actual Class",
+    y = "Predicted Class"
+  ) +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5), # Center title
+    axis.text.x = element_text(angle = 0, vjust = 1, hjust = 0.5), # Adjust text angle if needed
+    axis.title = element_text(size = 14),
+    legend.title = element_text(size = 12),
+    legend.text = element_text(size = 10)
+  )
+```
+
+ROC curve
+```{r model-performance-plot}
+roc_original <- roc(
+  response = test_target_factor,
+  predictor = original_probs,
+  levels = test_target_levels
+) # Specify levels explicitly
+print(paste("GLM Original Features - AUC:", round(auc(roc_original), 4)))
+```
+
+Plot ROC curve
+```{r model-performance-roc}
+plot(roc_original,
+  main = "ROC Curve - GLM Original Features",
+  col = "blue",
+  lwd = 2,
+  print.auc = TRUE,
+  print.auc.y = 0.75,
+  print.auc.x = 0.75
+)
+```
+
+## Outlier detection
+Check for influential points using cook's distance.
+```{r}
+influenceIndexPlot(glm_original_model, vars = "C")
+```
+
+Find and remove all influential points with Cook's distance > 0.5
+```{r}
+cooks_d <- cooks.distance(glm_original_model)
+outlier_indices <- which(cooks_d > 0.5)
+print(paste("Number of influential points to remove:", length(outlier_indices)))
+
+# Remove all influential points
+if (length(outlier_indices) > 0) {
+  train_data_scaled <- train_data_scaled[-outlier_indices, ]
+  print(paste("Removed", length(outlier_indices), "influential points"))
+}
+```
+
+Refit the GLM with the updated training data.
+```{r}
+glm_original_model <- glm(glm_original_formula,
+  data = train_data_scaled,
+  family = binomial(link = "logit")
+)
+summary(glm_original_model)
+```
+
+Check outliers again.
+```{r}
+influenceIndexPlot(glm_original_model, vars = "C")
+```
+
+Find and remove all influential points with Cook's distance > 0.5
+```{r}
+cooks_d <- cooks.distance(glm_original_model)
+outlier_indices <- which(cooks_d > 0.5)
+print(paste("Number of influential points to remove:", length(outlier_indices)))
+
+# Remove all influential points
+if (length(outlier_indices) > 0) {
+  train_data_scaled <- train_data_scaled[-outlier_indices, ]
+  print(paste("Removed", length(outlier_indices), "influential points"))
+}
+```
+Refit the GLM with the updated training data.
+```{r}
+glm_original_model <- glm(glm_original_formula,
+  data = train_data_scaled,
+  family = binomial(link = "logit")
+)
+summary(glm_original_model)
+```
+
+Check outliers again.
+```{r}
+influenceIndexPlot(glm_original_model, vars = "C")
+```
+
+Now the model should be good.
+
+## Model Evaluation without outliers
+Predict on the test set and evaluate.
+```{r}
+original_probs <- predict(glm_original_model, newdata = test_data_scaled, type = "response")
+# Ensure probabilities are valid
+original_probs <- pmax(pmin(original_probs, 1 - 1e-15), 1e-15)
+
+# Convert probabilities to class predictions using a 0.5 threshold
+threshold <- 0.5
+# Use the levels from the *test* data target factor for creating prediction factor
+test_target_levels <- levels(test_data_scaled[[target_variable_name]])
+negative_class <- test_target_levels[1] # Should be 'candidate'
+# Note: positive_class was defined earlier based on train_data levels
+
+original_preds <- factor(ifelse(original_probs > threshold, positive_class, negative_class),
+  levels = test_target_levels
+)
+
+test_target_factor <- test_data_scaled[[target_variable_name]]
+
+cm <- confusionMatrix(original_preds,
+  test_target_factor,
+  positive = positive_class
+) # Ensure positive class is correctly specified
+cm
+```
+
+Plot confusion matrix
+```{r}
+cm_data <- as.data.frame(cm$table)
+# Create heatmap
+ggplot(cm_data, aes(x = Reference, y = Prediction, fill = Freq)) +
+  geom_tile(colour = "white", linewidth = 0.5) + # Add lines between tiles
+  geom_text(aes(label = Freq), color = "white", size = 6) + # Adjust text size
+  # Use a color scheme less prone to issues for colorblindness if possible
+  scale_fill_gradient(low = "lightblue", high = "darkblue", name = "Frequency") +
+  theme_minimal(base_size = 12) + # Set base font size
+  labs(
+    title = "Confusion Matrix Heatmap", # Corrected title
+    x = "Actual Class",
+    y = "Predicted Class"
+  ) +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5), # Center title
+    axis.text.x = element_text(angle = 0, vjust = 1, hjust = 0.5), # Adjust text angle if needed
+    axis.title = element_text(size = 14),
+    legend.title = element_text(size = 12),
+    legend.text = element_text(size = 10)
+  )
+```
+
+ROC curve
+```{r}
+roc_original <- roc(
+  response = test_target_factor,
+  predictor = original_probs,
+  levels = test_target_levels
+) # Specify levels explicitly
+print(paste("GLM Original Features - AUC:", round(auc(roc_original), 4)))
+```
+
+Plot ROC curve
+```{r}
+plot(roc_original,
+  main = "ROC Curve - GLM Original Features",
+  col = "blue",
+  lwd = 2,
+  print.auc = TRUE,
+  print.auc.y = 0.75,
+  print.auc.x = 0.75
+)
+```
+
+## Residual analysis
+- **Plot 1: Residuals vs Fitted (Linear Predictor)**
+  Look for: Lack of strong patterns, random scatter around the smoothed line (though some banding is expected for binary data). Curvature might indicate link function issues or missing non-linear terms.
+- **Plot 2: Scale-Location**
+  Look for: Relatively flat smoothed line, indicating variance is somewhat constant across fitted values. Less critical for binomial GLM than OLS.
+- **Plot 3: Residuals vs Leverage**
+  Look for: Points with high leverage (far right) AND large standardized residuals (far top/bottom). Points outside Cook's distance contours (dashed lines) are influential.
+```{r}
+plot(glm_original_model, which = c(1, 3, 5))
+```
+
+Plots Pearson residuals against each continuous predictor in the model.
+```{r}
+residualPlots(glm_original_model, layout = NULL, main = "Resiiduals vs Predictors")
+```
+
+Calculates Variance Inflation Factors. Important when using original predictors.
+High VIF (> 5 or > 10) suggests multicollinearity might be inflating standard errors of coefficients, making them unstable/unreliable.
+```{r}
+vif_values <- vif(glm_original_model)
+print("VIF Values:")
+print(vif_values)
+# Check for high values
+max_vif <- max(vif_values, na.rm = TRUE)
+print(paste("Max VIF:", round(max_vif, 2)))
+```
+
+From the VIF values, we notice the following:
+1. Physical Relationships: koi_period and koi_sma are expected to be highly correlated due to Kepler's Third Law.
+2. Parameter Dependencies: Limb darkening coefficients (koi_ldm_coeff1, koi_ldm_coeff2) are often highly correlated with each other and can also be correlated with stellar temperature (koi_steff). Stellar parameters (koi_steff, koi_teq, koi_smass) are often correlated among themselves.
+
+We proceed by removing highly correlated predictors from the model.
+```{r}
+# Remove highly correlated predictors
+predictors_to_remove <- c("koi_sma", "koi_ldm_coeff2")
+train_data_scaled <- train_data_scaled[, !names(train_data_scaled) %in% predictors_to_remove]
+test_data_scaled <- test_data_scaled[, !names(test_data_scaled) %in% predictors_to_remove]
+
+# Update predictor_cols
+predictor_cols <- predictor_cols[!predictor_cols %in% predictors_to_remove]
+
+# Refit the model with updated data
+glm_original_model <- glm(glm_original_formula,
+  data = train_data_scaled,
+  family = binomial(link = "logit")
+)
+summary(glm_original_model)
+```
+
+## Model Evaluation without correlated predictors
+Predict on the test set and evaluate.
+```{r}
+original_probs <- predict(glm_original_model, newdata = test_data_scaled, type = "response")
+# Ensure probabilities are valid
+original_probs <- pmax(pmin(original_probs, 1 - 1e-15), 1e-15)
+
+# Convert probabilities to class predictions using a 0.5 threshold
+threshold <- 0.5
+# Use the levels from the *test* data target factor for creating prediction factor
+test_target_levels <- levels(test_data_scaled[[target_variable_name]])
+negative_class <- test_target_levels[1] # Should be 'candidate'
+# Note: positive_class was defined earlier based on train_data levels
+
+original_preds <- factor(ifelse(original_probs > threshold, positive_class, negative_class),
+  levels = test_target_levels
+)
+
+test_target_factor <- test_data_scaled[[target_variable_name]]
+
+cm <- confusionMatrix(original_preds,
+  test_target_factor,
+  positive = positive_class
+) # Ensure positive class is correctly specified
+cm
+```
+
+Plot confusion matrix
+```{r}
+cm_data <- as.data.frame(cm$table)
+# Create heatmap
+ggplot(cm_data, aes(x = Reference, y = Prediction, fill = Freq)) +
+  geom_tile(colour = "white", linewidth = 0.5) + # Add lines between tiles
+  geom_text(aes(label = Freq), color = "white", size = 6) + # Adjust text size
+  # Use a color scheme less prone to issues for colorblindness if possible
+  scale_fill_gradient(low = "lightblue", high = "darkblue", name = "Frequency") +
+  theme_minimal(base_size = 12) + # Set base font size
+  labs(
+    title = "Confusion Matrix Heatmap", # Corrected title
+    x = "Actual Class",
+    y = "Predicted Class"
+  ) +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5), # Center title
+    axis.text.x = element_text(angle = 0, vjust = 1, hjust = 0.5), # Adjust text angle if needed
+    axis.title = element_text(size = 14),
+    legend.title = element_text(size = 12),
+    legend.text = element_text(size = 10)
+  )
+```
+
+ROC curve
+```{r}
+roc_original <- roc(
+  response = test_target_factor,
+  predictor = original_probs,
+  levels = test_target_levels
+) # Specify levels explicitly
+print(paste("GLM Original Features - AUC:", round(auc(roc_original), 4)))
+```
+
+Plot ROC curve
+```{r}
+plot(roc_original,
+  main = "ROC Curve - GLM Original Features",
+  col = "blue",
+  lwd = 2,
+  print.auc = TRUE,
+  print.auc.y = 0.75,
+  print.auc.x = 0.75
+)
+```
+
+```{r}
+vif_values <- vif(glm_original_model)
+print("VIF Values:")
+print(vif_values)
+# Check for high values
+max_vif <- max(vif_values, na.rm = TRUE)
+print(paste("Max VIF:", round(max_vif, 2)))
+```
+
+Now the model should be good.
+
+## Summary of GLM Results
+The logistic regression model was fitted using scaled original numeric features (excluding the binary flag variables) to predict the koi_pdisposition.
+
+1. **Model Fit & Significant Predictors**:
+  The overall model shows a highly significant improvement over the null model (intercept only), indicated by the large drop in deviance (Null: 8866.2, Residual: 5045.5).
+  Several predictors showed a statistically significant relationship (p < 0.05) with the target variable in this model: koi_duration, koi_depth, koi_teq, koi_insol, koi_steff, koi_slogg, koi_smass, koi_impact, koi_ror, koi_incl, koi_dor, koi_ldm_coeff1, koi_ldm_coeff2, and koi_smet.
+  Notable predictors that were not statistically significant in this specific model include koi_period, koi_prad, koi_model_snr, koi_srad, koi_srho, and koi_sma. This could be due to collinearity with other included variables.
+
+2. **Residual Analysis (Non-linearity Check)**:
+  Tests for non-linearity (curvature) were performed on the model's residuals.
+  Significant evidence (p < 0.05) of non-linear patterns remaining in the residuals was found for the following predictors: koi_depth, koi_teq, koi_insol, koi_slogg, koi_srad, koi_smass, koi_impact, koi_sma, koi_incl, koi_dor, and koi_smet. koi_period was borderline significant.
+  This indicates that the assumption of a purely linear relationship between these predictors and the log-odds of the outcome is likely violated.
+
+3. **Conclusion**:
+  The GLM identifies many significant predictors for exoplanet disposition. However, the residual analysis strongly suggests that the model's linear structure is insufficient to capture the underlying relationships for numerous variables. This indicates that model performance could potentially be improved by incorporating non-linear effects or using models better suited to capturing such complexities.
+
+# Model improvements
+## GAM model
+Let's start by fitting a GAM model in order to use smooth functions s() for predictors showing non-linearity in residual analysis.
+```{r}
+nonlinear_predictors_gam <- c(
+  "koi_depth", "koi_teq", "koi_insol", "koi_slogg",
+  "koi_srad", "koi_smass", "koi_impact", "koi_sma",
+  "koi_incl", "koi_dor", "koi_smet", "koi_period"
+)
+
+nonlinear_predictors_gam <- nonlinear_predictors_gam[nonlinear_predictors_gam %in% names(train_data_scaled)]
+
+linear_predictors_gam <- setdiff(predictor_cols, nonlinear_predictors_gam)
+```
+
+Prepare the formula for the GAM model.
+```{r}
+smooth_terms <- if (length(nonlinear_predictors_gam) > 0) paste(paste0("s(", nonlinear_predictors_gam, ")"), collapse = " + ") else NULL
+linear_terms <- if (length(linear_predictors_gam) > 0) paste(linear_predictors_gam, collapse = " + ") else NULL
+
+gam_formula_str <- paste(target_variable_name, "~", paste(c(smooth_terms, linear_terms), collapse = " + "))
+# Remove potential trailing/leading "+" if one group was empty
+gam_formula_str <- gsub("\\+ $", "", gsub("^\\+ ", "", gsub(" \\+ \\+ ", " + ", gam_formula_str)))
+
+gam_formula <- as.formula(gam_formula_str)
+print(paste("Using GAM formula:", gam_formula_str))
+```
+
+Fit the GAM model.
+```{r}
+gam_model <- gam(gam_formula,
+  data = train_data_scaled,
+  family = binomial(link = "logit"),
+  method = "REML"
+)
+summary(gam_model)
+```
+
+Predict on the test set and evaluate.
+```{r}
+gam_probs <- predict(gam_model, newdata = test_data_scaled, type = "response")
+gam_probs <- pmax(pmin(gam_probs, 1 - 1e-15), 1e-15)
+gam_preds <- factor(ifelse(gam_probs > 0.5, positive_class, levels(test_target_factor)[1]), levels = levels(test_target_factor))
+```
+
+Confusion matrix
+```{r}
+cm_gam <- confusionMatrix(gam_preds, test_target_factor, positive = positive_class)
+cm_gam
+```
+
+Plot confusion matrix
+```{r}
+cm_data <- as.data.frame(cm_gam$table)
+# Create heatmap
+ggplot(cm_data, aes(x = Reference, y = Prediction, fill = Freq)) +
+  geom_tile(colour = "white", linewidth = 0.5) + # Add lines between tiles
+  geom_text(aes(label = Freq), color = "white", size = 6) + # Adjust text size
+  # Use a color scheme less prone to issues for colorblindness if possible
+  scale_fill_gradient(low = "lightblue", high = "darkblue", name = "Frequency") +
+  theme_minimal(base_size = 12) + # Set base font size
+  labs(
+    title = "Confusion Matrix Heatmap", # Corrected title
+    x = "Actual Class",
+    y = "Predicted Class"
+  ) +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5), # Center title
+    axis.text.x = element_text(angle = 0, vjust = 1, hjust = 0.5), # Adjust text angle if needed
+    axis.title = element_text(size = 14),
+    legend.title = element_text(size = 12),
+    legend.text = element_text(size = 10)
+  )
+```
+
+ROC curve
+```{r}
+roc_gam <- roc(response = test_target_factor, predictor = gam_probs, levels = levels(test_target_factor))
+print(paste("GAM - AUC:", round(auc(roc_gam), 4)))
+```
+
+Plot ROC curve
+```{r}
+plot(roc_gam,
+  main = "ROC Curve - GAM",
+  col = "blue",
+  lwd = 2,
+  print.auc = TRUE,
+  print.auc.y = 0.75,
+  print.auc.x = 0.75
+)
+```
+
+## Interaction terms
+Let's try adding interaction terms to the original GLM model.
+```{r}
+interaction_subset <- c("koi_teq", "koi_slogg", "koi_ror", "koi_smet", "koi_impact")
+# Ensure these exist in the data
+interaction_subset <- interaction_subset[interaction_subset %in% names(train_data_scaled)]
+
+# Get all other predictors to include as main effects
+all_predictors <- setdiff(names(train_data_scaled), target_variable_name)
+other_predictors <- setdiff(all_predictors, interaction_subset)
+```
+
+Prepare the formula for the GLM model with interaction terms.
+```{r}
+interaction_formula_str <- paste(
+  target_variable_name, "~",
+  paste0("(", paste(interaction_subset, collapse = " + "), ")^2"), # Pairwise interactions + main effects
+  "+",
+  paste(other_predictors, collapse = " + ")
+) # Add main effects of others
+interaction_formula <- as.formula(interaction_formula_str)
+print(paste("Using interaction formula:", interaction_formula_str))
+```
+
+Fit the GLM model.
+```{r}
+glm_interaction_model <- glm(interaction_formula,
+  data = train_data_scaled,
+  family = binomial(link = "logit")
+)
+summary(glm_interaction_model)
+```
+
+Predict on the test set and evaluate.
+```{r}
+interaction_probs <- predict(glm_interaction_model, newdata = test_data_scaled, type = "response")
+interaction_probs <- pmax(pmin(interaction_probs, 1 - 1e-15), 1e-15)
+interaction_preds <- factor(ifelse(interaction_probs > 0.5, positive_class, levels(test_target_factor)[1]), levels = levels(test_target_factor))
+```
+
+Confusion matrix
+```{r}
+cm_interaction <- confusionMatrix(interaction_preds, test_target_factor, positive = positive_class)
+cm_interaction
+```
+
+Plot confusion matrix
+```{r}
+cm_data <- as.data.frame(cm_interaction$table)
+# Create heatmap
+ggplot(cm_data, aes(x = Reference, y = Prediction, fill = Freq)) +
+  geom_tile(colour = "white", linewidth = 0.5) + # Add lines between tiles
+  geom_text(aes(label = Freq), color = "white", size = 6) + # Adjust text size
+  # Use a color scheme less prone to issues for colorblindness if possible
+  scale_fill_gradient(low = "lightblue", high = "darkblue", name = "Frequency") +
+  theme_minimal(base_size = 12) + # Set base font size
+  labs(
+    title = "Confusion Matrix Heatmap", # Corrected title
+    x = "Actual Class",
+    y = "Predicted Class"
+  ) +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5), # Center title
+    axis.text.x = element_text(angle = 0, vjust = 1, hjust = 0.5), # Adjust text angle if needed
+    axis.title = element_text(size = 14),
+    legend.title = element_text(size = 12),
+    legend.text = element_text(size = 10)
+  )
+```
+
+ROC curve
+```{r}
+roc_glm_interaction <- roc(response = test_target_factor, predictor = interaction_probs, levels = levels(test_target_factor))
+print(paste("GLM with interaction - AUC:", round(auc(roc_glm_interaction), 4)))
+```
+
+Plot ROC curve
+```{r}
+plot(roc_glm_interaction,
+  main = "ROC Curve - GLM with interaction",
+  col = "blue",
+  lwd = 2,
+  print.auc = TRUE,
+  print.auc.y = 0.75,
+  print.auc.x = 0.75
+)
+```
+
+# Lasso Regression
+Preapare dataset and formula
+```{r}
+train_formula_lasso <- as.formula(paste("~ .")) # Include all predictors
+x_train <- model.matrix(train_formula_lasso, data = train_data_scaled[, all_predictors])[, -1] # Predictor matrix, remove intercept
+y_train <- train_data_scaled[[target_variable_name]] # Target factor
+```
+
+## Fit the model
+```{r}
+set.seed(42) # for reproducibility of CV folds
+cv_lasso_fit <- cv.glmnet(x_train, y_train,
+  family = "binomial",
+  alpha = 1,
+  type.measure = "auc", # Use AUC for CV evaluation
+  nfolds = 10
+)
+```
+
+## Plot the results
+```{r}
+plot(cv_lasso_fit)
+```
+
+## Evaluate the model
+```{r}
+best_lambda <- cv_lasso_fit$lambda.min
+x_test <- model.matrix(train_formula_lasso, data = test_data_scaled[, all_predictors])[, -1]
+
+# Evaluate using the best lambda found by CV
+lasso_probs <- predict(cv_lasso_fit, newx = x_test, s = best_lambda, type = "response")
+lasso_probs <- as.vector(pmax(pmin(lasso_probs, 1 - 1e-15), 1e-15)) # Ensure stability
+lasso_preds <- factor(ifelse(lasso_probs > 0.5, positive_class, levels(test_target_factor)[1]), levels = levels(test_target_factor))
+```
+
+Confusion matrix
+```{r}
+lasso_cm <- confusionMatrix(lasso_preds, test_target_factor, positive = positive_class)
+lasso_cm
+```
+
+Plot confusion matrix
+```{r}
+cm_data <- as.data.frame(lasso_cm$table)
+# Create heatmap
+ggplot(cm_data, aes(x = Reference, y = Prediction, fill = Freq)) +
+  geom_tile(colour = "white", linewidth = 0.5) + # Add lines between tiles
+  geom_text(aes(label = Freq), color = "white", size = 6) + # Adjust text size
+  # Use a color scheme less prone to issues for colorblindness if possible
+  scale_fill_gradient(low = "lightblue", high = "darkblue", name = "Frequency") +
+  theme_minimal(base_size = 12) + # Set base font size
+  labs(
+    title = "Confusion Matrix Heatmap", # Corrected title
+    x = "Actual Class",
+    y = "Predicted Class"
+  ) +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5), # Center title
+    axis.text.x = element_text(angle = 0, vjust = 1, hjust = 0.5), # Adjust text angle if needed
+    axis.title = element_text(size = 14),
+    legend.title = element_text(size = 12),
+    legend.text = element_text(size = 10)
+  )
+```
+
+ROC curve
+```{r}
+roc_lasso <- roc(response = test_target_factor, predictor = lasso_probs, levels = levels(test_target_factor))
+print(paste("Lasso - AUC:", round(auc(roc_lasso), 4)))
+```
+
+Plot ROC curve
+```{r}
+plot(roc_lasso,
+  main = "ROC Curve - Lasso",
+  col = "blue",
+  lwd = 2,
+  print.auc = TRUE,
+  print.auc.y = 0.75,
+  print.auc.x = 0.75
+)
+```
+
+# Ridge regression
+## Fit the model
+```{r}
+set.seed(42) # for reproducibility of CV folds
+cv_ridge_fit <- cv.glmnet(x_train, y_train,
+  family = "binomial",
+  alpha = 0, # Set alpha to 0 for Ridge
+  type.measure = "auc", # Use AUC for CV evaluation
+  nfolds = 10
+)
+```
+
+## Plot the results
+```{r}
+plot(cv_ridge_fit)
+```
+
+## Evaluate the model
+```{r}
+best_lambda_ridge <- cv_ridge_fit$lambda.min
+ridge_probs <- predict(cv_ridge_fit, newx = x_test, s = best_lambda_ridge, type = "response")
+ridge_probs <- as.vector(pmax(pmin(ridge_probs, 1 - 1e-15), 1e-15)) # Ensure stability
+ridge_preds <- factor(ifelse(ridge_probs > 0.5, positive_class, levels(test_target_factor)[1]), levels = levels(test_target_factor))
+```
+
+Confusion matrix
+```{r}
+ridge_cm <- confusionMatrix(ridge_preds, test_target_factor, positive = positive_class)
+ridge_cm
+```
+
+Plot confusion matrix
+```{r}
+cm_data <- as.data.frame(lasso_cm$table)
+# Create heatmap
+ggplot(cm_data, aes(x = Reference, y = Prediction, fill = Freq)) +
+  geom_tile(colour = "white", linewidth = 0.5) + # Add lines between tiles
+  geom_text(aes(label = Freq), color = "white", size = 6) + # Adjust text size
+  # Use a color scheme less prone to issues for colorblindness if possible
+  scale_fill_gradient(low = "lightblue", high = "darkblue", name = "Frequency") +
+  theme_minimal(base_size = 12) + # Set base font size
+  labs(
+    title = "Confusion Matrix Heatmap", # Corrected title
+    x = "Actual Class",
+    y = "Predicted Class"
+  ) +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5), # Center title
+    axis.text.x = element_text(angle = 0, vjust = 1, hjust = 0.5), # Adjust text angle if needed
+    axis.title = element_text(size = 14),
+    legend.title = element_text(size = 12),
+    legend.text = element_text(size = 10)
+  )
+```
+
+ROC Curve
+```{r}
+roc_ridge <- roc(response = test_target_factor, predictor = ridge_probs, levels = levels(test_target_factor))
+print(paste("Ridge Regression - AUC:", round(auc(roc_ridge), 4)))
+```
+
+Plot ROC curve
+```{r}
+plot(roc_ridge,
+  main = "ROC Curve - Lasso",
+  col = "blue",
+  lwd = 2,
+  print.auc = TRUE,
+  print.auc.y = 0.75,
+  print.auc.x = 0.75
+)
+```
+
+# Save model results for comparison
+```{r}
+# Create data frame with model performance metrics
+models_performance <- data.frame(
+  Model = c("GLM", "GAM", "GLM with Interactions", "Lasso", "Ridge"),
+  Accuracy = c(
+    cm$overall["Accuracy"],
+    cm_gam$overall["Accuracy"],
+    cm_interaction$overall["Accuracy"],
+    lasso_cm$overall["Accuracy"],
+    ridge_cm$overall["Accuracy"]
+  ),
+  Sensitivity = c(
+    cm$byClass["Sensitivity"],
+    cm_gam$byClass["Sensitivity"],
+    cm_interaction$byClass["Sensitivity"],
+    lasso_cm$byClass["Sensitivity"],
+    ridge_cm$byClass["Sensitivity"]
+  ),
+  Specificity = c(
+    cm$byClass["Specificity"],
+    cm_gam$byClass["Specificity"],
+    cm_interaction$byClass["Specificity"],
+    lasso_cm$byClass["Specificity"],
+    ridge_cm$byClass["Specificity"]
+  ),
+  AUC = c(
+    auc(roc_original),
+    auc(roc_gam),
+    auc(roc_glm_interaction),
+    auc(roc_lasso),
+    auc(roc_ridge)
+  )
+)
+
+# Round numeric columns to 4 decimal places
+models_performance[, 2:5] <- round(models_performance[, 2:5], 4)
+
+# save to Rda
+save(models_performance, file = "data/Rdas/models_performance.Rda")
+
+# Display the results
+models_performance
+```

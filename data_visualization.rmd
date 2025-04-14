@@ -42,14 +42,13 @@ knitr::opts_chunk$set(
 )
 ```
 
-# Data visualization
-## Load clean data
+# Load clean data
 Load the cleaned data from the previous steps done in **`data_preparation.rmd`** file.
 ```{r}
 koi_data <- readRDS("data/Rdas/koi_data.Rda")
 ```
 
-## Correlation matrix
+# Correlation matrix
 Create a correlation matrix to understand the relationships between variables.
 ```{r}
 # Select only numeric columns for correlation
@@ -76,7 +75,7 @@ ggcorrplot(cor_matrix,
 
 The correlation matrix shows us that there are some strong relationships between some variables. For example, the correlation between `koi_period` and `koi_duration` is 0.99, indicating a very strong positive relationship. This suggests that as the orbital period increases, the transit duration also tends to increase.
 
-## PCA analysis
+# PCA analysis
 Perform PCA on the selected numerical variables.
 ```{r}
 numerical_pca_cols <- koi_data %>%
@@ -99,7 +98,7 @@ if (length(disposition_complete) != nrow(pca_data_complete)) {
 scaled_pca_data <- scale(pca_data_complete)
 pca_result <- prcomp(scaled_pca_data, center = FALSE, scale. = FALSE)
 ```
-### PCA Summary
+## PCA Summary
 Shows proportion of variance explained by each component
 ```{r}
 summary(pca_result)
@@ -111,7 +110,7 @@ fviz_eig(pca_result, addlabels = TRUE)
 
 From the eigenvalues, we can see that the first two principal components explain approximately 32% of the total variance. This suggests that the first two principal components does not capture much of the variability in the data. We need the first 11 PCA to get over 90% of the variance, suggesting that the underlying structure of the data (based on these numerical variables) is quite complex. There isn't a simple, low-dimensional linear subspace that captures most of the information.
 
-### PCA Loadings
+## PCA Loadings
 Show how original variables contribute to each PC using rotation matrix.
 The loadings tell us how much each original variable contributes to each principal component. Larger absolute values mean stronger influence. The sign (+/-) indicates the direction of the correlation.
 ```{r}
@@ -139,7 +138,7 @@ Analysis of the component loadings revealed distinct patterns captured by the pr
 
 These interpretations suggest that the primary sources of variation in the dataset relate to the transit signal strength, stellar characteristics, transit geometry, and orbital properties.
 
-### PCA Plots
+## PCA Plots
 Combine PCA results with the disposition information and plot the results.
 ```{r}
 pca_plot_data <- data.frame(
@@ -183,83 +182,197 @@ ggpairs(pca_scores_df_7,
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
-## Variables Plots
-Explore relationships between variables and disposition.
-```{r}
+# Data visualization 
+## Distribution of Dispositions
+First, let's see the balance between the different dispositions in the dataset using the pipeline disposition (`koi_pdisposition`).
+```{r plot-disposition-distribution}
+ggplot(koi_data %>% filter(!is.na(koi_pdisposition)), aes(x = koi_pdisposition, fill = koi_pdisposition)) +
+  geom_bar() +
+  geom_text(stat = "count", aes(label = ..count..), vjust = -0.5) +
+  labs(
+    title = "Distribution of Pipeline Dispositions",
+    x = "Pipeline Disposition (koi_pdisposition)",
+    y = "Count"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none") # Hide legend as fill is redundant
+```
+
+This plot shows the number of KOIs classified as CANDIDATE vs. FALSE POSITIVE by the Kepler pipeline (within the loaded dataset, potentially after some filtering/NA removal). We can observe the relative balance between these classes, which is important context for model building and evaluation (e.g., calculating baseline accuracy). The classes appear reasonably balanced in this dataset.
+
+## Stellar Metallicity vs. Planetary Radius
+Explore if planet size relates to the host star's metallicity.
+```{r plot-met-vs-rad}
 ggplot(
-  koi_data %>% filter(!is.na(koi_smet), !is.na(koi_prad), !is.na(koi_pdisposition)),
+  koi_data %>% filter(!is.na(koi_smet), !is.na(koi_prad), !is.na(koi_pdisposition), koi_prad > 0),
   aes(x = koi_smet, y = koi_prad, color = koi_pdisposition)
 ) +
   geom_point(alpha = 0.6, size = 1.5) +
-  scale_y_log10() + # Planet radius often plotted on log scale
+  scale_y_log10(breaks = c(0.1, 0.3, 1, 3, 10, 30), labels = scales::label_number(accuracy = 0.1)) + # Planet radius often plotted on log scale
   labs(
     title = "Stellar Metallicity vs. Planetary Radius",
     x = "Stellar Metallicity [Fe/H] (koi_smet)",
     y = "Planetary Radius [Earth Radii] (koi_prad) (log scale)",
     color = "Pipeline Disposition"
   ) +
-  theme_minimal()
+  theme_minimal() +
+  annotation_logticks(sides = "l") # Add log ticks to y-axis
 ```
 
-```{r}
-ggplot(koi_data %>% filter(!is.na(koi_prad)), aes(x = koi_prad)) +
-  geom_histogram(binwidth = 0.1) + # Adjust binwidth as needed
-  scale_x_log10() +
-  labs(title = "Distribution of Planetary Radii", x = "Planetary Radius [Earth Radii] (log scale)", y = "Count")
+This plot investigates whether larger planets tend to form around stars with higher metallicity (more heavy elements). While some studies suggest such a trend, especially for gas giants, it might not be strongly apparent here without statistical analysis. We can visually inspect if CANDIDATEs (blue) and FALSE POSITIVEs (red) occupy different regions or show different trends in this parameter space. False positives might appear across the metallicity range.
 
-ggplot(koi_data %>% filter(!is.na(koi_period)), aes(x = koi_period)) +
-  geom_histogram() + # ggplot chooses bins, or set binwidth/bins
-  scale_x_log10() +
-  labs(title = "Distribution of Orbital Periods", x = "Orbital Period [Days] (log scale)", y = "Count")
+## Distribution of Planetary Radii
+Understand the frequency of different planet sizes.
+```{r plot-radius-hist}
+ggplot(koi_data %>% filter(!is.na(koi_prad), koi_prad > 0), aes(x = koi_prad)) +
+  geom_histogram(bins = 50) + # Adjust binwidth/bins as needed
+  scale_x_log10(breaks = c(0.1, 0.3, 1, 3, 10, 30, 100), labels = scales::label_number(accuracy = 0.1)) +
+  labs(
+    title = "Distribution of Planetary Radii",
+    x = "Planetary Radius [Earth Radii] (koi_prad) (log scale)",
+    y = "Count"
+  ) +
+  theme_minimal() +
+  annotation_logticks(sides = "b") # Add log ticks to x-axis
 ```
 
-Period vs. Radius: A classic plot in exoplanet studies. Color by disposition.
-```{r}
+This histogram reveals the distribution of detected planet candidate sizes. We often expect to see peaks corresponding to common planet types (like super-Earths/mini-Neptunes around 1.5-4 Earth radii) and potentially a dip known as the "radius valley" or "Fulton gap" around 1.5-2 Earth radii, separating rocky super-Earths from gaseous mini-Neptunes. The distribution is heavily influenced by detection biases (larger planets are easier to find).
+
+## Distribution of Orbital Periods
+Understand the frequency of different orbital periods.
+```{r plot-period-hist}
+ggplot(koi_data %>% filter(!is.na(koi_period), koi_period > 0), aes(x = koi_period)) +
+  geom_histogram(bins = 50) + # ggplot chooses bins, or set binwidth/bins
+  scale_x_log10(breaks = c(0.1, 1, 10, 100, 1000)) +
+  labs(
+    title = "Distribution of Orbital Periods",
+    x = "Orbital Period [Days] (log scale)",
+    y = "Count"
+  ) +
+  theme_minimal() +
+  annotation_logticks(sides = "b") # Add log ticks to x-axis
+```
+
+This histogram shows that the vast majority of detected KOIs have short orbital periods (typically less than 50-100 days). This is largely due to detection bias: planets with shorter periods transit more frequently, making them easier to detect in the fixed duration of the Kepler mission.
+
+## Orbital Period vs. Planetary Radius
+A classic plot in exoplanet studies, often revealing distinct populations. Color by disposition.
+```{r plot-period-vs-rad}
 ggplot(
-  koi_data %>% filter(!is.na(koi_prad), !is.na(koi_period)),
-  aes(x = koi_period, y = koi_prad, color = koi_disposition)
+  koi_data %>% filter(!is.na(koi_prad), !is.na(koi_period), koi_prad > 0, koi_period > 0, !is.na(koi_pdisposition)),
+  aes(x = koi_period, y = koi_prad, color = koi_pdisposition)
 ) +
   geom_point(alpha = 0.5, size = 1.5) + # Adjust alpha/size
-  scale_x_log10() +
-  scale_y_log10() +
+  scale_x_log10(breaks = c(0.1, 1, 10, 100, 1000)) +
+  scale_y_log10(breaks = c(0.1, 0.3, 1, 3, 10, 30, 100), labels = scales::label_number(accuracy = 0.1)) +
   labs(
     title = "Orbital Period vs. Planetary Radius",
     x = "Orbital Period [Days] (log scale)",
     y = "Planetary Radius [Earth Radii] (log scale)",
-    color = "Disposition"
+    color = "Disposition" # Using Archive Disposition here
   ) +
-  theme_minimal() # Or other themes
+  theme_minimal() + # Or other themes
+  annotation_logticks(sides = "lb") # Add log ticks to both axes
 ```
 
-Insolation/Temperature vs. Radius: Explore potential atmospheric regimes.
-```{r}
+This fundamental plot shows planet radius against orbital period. We can identify known exoplanet populations: Hot Jupiters (large radius, short period - top left), potentially a "Neptunian desert" (a region with fewer Neptune-sized planets at very short periods), and the bulk of smaller planets (Super-Earths/Mini-Neptunes). Coloring by disposition helps visualize where confirmed planets (green), candidates (blue), and false positives (red) lie. False positives might cluster in certain areas (e.g., very large radii suggesting eclipsing binaries) or be scattered throughout.
+
+## Insolation Flux vs. Planetary Radius
+Explore potential atmospheric regimes based on stellar energy received.
+```{r plot-insol-vs-rad}
 ggplot(
-  koi_data %>% filter(!is.na(koi_prad), !is.na(koi_insol)),
-  aes(x = koi_insol, y = koi_prad, color = koi_disposition)
+  koi_data %>% filter(!is.na(koi_prad), !is.na(koi_insol), koi_prad > 0, koi_insol > 0, !is.na(koi_pdisposition)),
+  aes(x = koi_insol, y = koi_prad, color = koi_pdisposition)
 ) +
   geom_point(alpha = 0.5) +
   scale_x_log10() + # Insolation often spans orders of magnitude
-  scale_y_log10() +
+  scale_y_log10(breaks = c(0.1, 0.3, 1, 3, 10, 30, 100), labels = scales::label_number(accuracy = 0.1)) +
   labs(
     title = "Insolation Flux vs. Planetary Radius",
     x = "Insolation Flux [Earth Flux] (log scale)",
     y = "Planetary Radius [Earth Radii] (log scale)",
     color = "Disposition"
-  )
+  ) +
+  theme_minimal() +
+  annotation_logticks(sides = "lb") # Add log ticks to both axes
 ```
 
-Stellar Temperature vs. Stellar Radius/Mass: Explore stellar properties (like an H-R diagram).
-```{r}
+This plot relates the amount of energy a planet receives from its star to its size. High insolation can affect planetary atmospheres (e.g., photo-evaporation potentially contributing to the radius valley). We can examine if candidates and false positives separate based on these parameters. For instance, highly irradiated large objects might be more likely to be false positives (binaries).
+
+## Transit Depth vs. SNR
+Explore the relationship between the measured transit depth and its signal-to-noise ratio.
+```{r plot-depth-vs-snr}
 ggplot(
-  koi_data %>% filter(!is.na(koi_steff), !is.na(koi_srad)),
-  aes(x = koi_steff, y = koi_srad)
+  koi_data %>% filter(!is.na(koi_depth), !is.na(koi_model_snr), koi_depth > 0, koi_model_snr > 0, !is.na(koi_pdisposition)),
+  aes(x = koi_depth, y = koi_model_snr, color = koi_pdisposition)
 ) +
-  geom_point(alpha = 0.3) +
-  scale_x_reverse() + # Convention for H-R diagrams
+  geom_point(alpha = 0.5) +
+  scale_x_log10() +
   scale_y_log10() +
   labs(
-    title = "Stellar Properties (H-R Diagram Analog)",
-    x = "Stellar Effective Temperature [K]",
-    y = "Stellar Radius [Solar Radii] (log scale)"
-  )
+    title = "Transit Depth vs. Model Signal-to-Noise Ratio",
+    x = "Transit Depth [ppm] (log scale)",
+    y = "Transit Signal-to-Noise Ratio (log scale)",
+    color = "Pipeline Disposition"
+  ) +
+  theme_minimal() +
+  annotation_logticks(sides = "lb")
 ```
+
+As expected, there is a strong positive correlation between transit depth and SNR – deeper transits are easier to detect with higher confidence. This plot helps visualize if false positives tend to cluster at lower SNRs or specific depths. Some false positives might have high SNR but other characteristics (like V-shaped transits, not shown here) that disqualify them. Candidates span a wide range of depths and SNRs.
+
+## Boxplots of Key Variables by Disposition
+Compare the distributions of important numeric variables between CANDIDATEs and FALSE POSITIVEs.
+```{r boxplots-by-disposition}
+# Example: Orbital Period
+p1 <- ggplot(
+  koi_data %>% filter(!is.na(koi_period), !is.na(koi_pdisposition), koi_period > 0),
+  aes(x = koi_pdisposition, y = koi_period, fill = koi_pdisposition)
+) +
+  geom_boxplot(outlier.shape = NA) + # Hide outliers for clarity on main distribution
+  scale_y_log10(limits = c(NA, quantile(koi_data$koi_period, 0.99, na.rm = TRUE))) + # Zoom y-axis, adjust quantile if needed
+  labs(y = "Orbital Period (log)", x = "Disposition") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Example: Planetary Radius
+p2 <- ggplot(
+  koi_data %>% filter(!is.na(koi_prad), !is.na(koi_pdisposition), koi_prad > 0),
+  aes(x = koi_pdisposition, y = koi_prad, fill = koi_pdisposition)
+) +
+  geom_boxplot(outlier.shape = NA) +
+  scale_y_log10(limits = c(NA, quantile(koi_data$koi_prad, 0.99, na.rm = TRUE))) +
+  labs(y = "Planetary Radius (log)", x = "Disposition") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Example: Transit Duration
+p3 <- ggplot(
+  koi_data %>% filter(!is.na(koi_duration), !is.na(koi_pdisposition), koi_duration > 0),
+  aes(x = koi_pdisposition, y = koi_duration, fill = koi_pdisposition)
+) +
+  geom_boxplot(outlier.shape = NA) +
+  scale_y_continuous(limits = c(NA, quantile(koi_data$koi_duration, 0.99, na.rm = TRUE))) + # May not need log scale
+  labs(y = "Transit Duration", x = "Disposition") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Example: Transit SNR
+p4 <- ggplot(
+  koi_data %>% filter(!is.na(koi_model_snr), !is.na(koi_pdisposition), koi_model_snr > 0),
+  aes(x = koi_pdisposition, y = koi_model_snr, fill = koi_pdisposition)
+) +
+  geom_boxplot(outlier.shape = NA) +
+  scale_y_log10(limits = c(NA, quantile(koi_data$koi_model_snr, 0.99, na.rm = TRUE))) +
+  labs(y = "Model SNR (log)", x = "Disposition") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Show plots sequentially if packages not loaded/preferred
+print(p1 + labs(title = "Period Distribution"))
+print(p2 + labs(title = "Radius Distribution"))
+print(p3 + labs(title = "Duration Distribution"))
+print(p4 + labs(title = "SNR Distribution"))
+```
+
+These boxplots compare the central tendency (median) and spread (interquartile range) of key variables between pipeline CANDIDATEs and FALSE POSITIVEs. Significant differences in the distributions suggest a variable might be a good discriminator between the classes. For example, we might observe that FALSE POSITIVEs tend to have larger median radii or perhaps shorter durations compared to CANDIDATEs, although overlap is expected. Variables showing clear separation are likely important features for predictive models. (Note: axis limits are adjusted to focus on the bulk of the distribution, hiding extreme outliers for visual clarity of the boxes).

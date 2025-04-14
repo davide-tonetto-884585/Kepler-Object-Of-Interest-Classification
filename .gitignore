@@ -1,2 +1,16 @@
 .idea
 .DS_Store
+*.aux
+*.bcf*
+*.bbl*
+*.blg
+*.log
+*.out
+*.run.xml
+*.synctex.gz
+*.toc
+*.fdb_latexmk
+*.fls
+/*/.zed
+/*/.vscode
+/*/.DS_Store

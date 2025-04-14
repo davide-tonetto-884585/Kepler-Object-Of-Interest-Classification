@@ -1,0 +1,102 @@
+---
+title: "KOI analysis - Conclusions"
+author: "Davide Tonetto"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    theme: cosmo          
+    highlight: tango      
+    toc: true             
+    toc_float: true       
+    toc_depth: 3          
+    number_sections: true 
+    df_print: paged       
+    code_folding: show    
+    fig_width: 10         
+    fig_height: 6         
+---
+
+```{r setup, include=FALSE}
+# Set CRAN mirror
+options(repos = c(CRAN = "https://cloud.r-project.org"))
+
+# Function to install and load required packages
+packages <- c("tidyverse")
+
+# Install packages not yet installed
+installed_packages <- packages %in% rownames(installed.packages())
+if (any(!installed_packages)) {
+  install.packages(packages[!installed_packages])
+}
+
+# Load all required packages
+invisible(lapply(packages, library, character.only = TRUE))
+
+# Set global chunk options
+knitr::opts_chunk$set(
+  warning = FALSE, # Don't show warnings in the output
+  message = FALSE, # Don't show package loading messages
+  echo = TRUE, # Show R code chunks in the output
+  fig.width = 10, # Set default figure width
+  fig.height = 6 # Set default figure height
+)
+```
+
+# Models comparison
+## Load models performance from Rda files
+```{r}
+# Load models performance from Rda files
+load("data/Rdas/models_performance.Rda")
+load("data/Rdas/models_performance_pca.Rda")
+
+final_models_performance <- bind_rows(models_performance, models_performance_pca)
+final_models_performance
+```
+
+plot models performance
+```{r}
+# Create long format data for plotting
+performance_long <- final_models_performance %>%
+  pivot_longer(
+    cols = c(Accuracy, Sensitivity, Specificity, AUC),
+    names_to = "Metric",
+    values_to = "Value"
+  )
+
+# Create plots
+ggplot(performance_long, aes(x = Model, y = Value, fill = Metric)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_fill_brewer(palette = "Set2") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(hjust = 0.5, size = 16),
+    legend.position = "top"
+  ) +
+  labs(
+    title = "Model Performance Comparison",
+    x = "Models",
+    y = "Score"
+  ) +
+  ylim(0, 1)
+```
+
+# Conclusions: Model Performance Comparison
+Several models were developed and evaluated for classifying Kepler Objects of Interest (KOI), including standard GLM, GAM, regularized regression (Lasso, Ridge), and models using Principal Component Analysis (PCA) features. The performance was compared based on Accuracy, Sensitivity, Specificity, and Area Under the ROC Curve (AUC).
+
+## Key Findings
+Original Features vs. PCA Features: Models trained directly on the original (scaled) features generally demonstrated superior performance compared to those trained on PCA features in this analysis. The GLM, GAM, Lasso, and Ridge models using original features all achieved AUCs above 0.88, whereas the models using PCA features had lower AUCs (0.70-0.87) and often exhibited extreme trade-offs between Sensitivity and Specificity, potentially influenced by the definition of the positive class during evaluation. This suggests that PCA, as implemented here, might have resulted in some information loss detrimental to predictive performance for this specific task compared to using the original, interpretable features.
+
+## Performance Among Original Feature Models
+- GAM: The Generalized Additive Model (GAM) emerged as the top performer, achieving the highest AUC (0.8930) and Accuracy (0.8274). It also showed a good balance between Sensitivity (0.7894) and Specificity (0.8648). This suggests that capturing non-linear relationships using smooth functions, as identified in the residual analysis, provided a tangible benefit over the standard linear GLM.
+
+- Baseline GLM: The standard GLM performed strongly, with an AUC (0.8875) and Accuracy (0.8193) only slightly below the GAM. It represents a solid baseline.
+
+- Regularized Models (Lasso & Ridge): Lasso (AUC 0.8816) and Ridge (AUC 0.8828) performed very similarly to each other and slightly below the baseline GLM and GAM in terms of AUC and Accuracy. However, they achieved the highest Specificity values (0.8958 and 0.8896, respectively). This indicates that regularization helped in correctly identifying the negative class (likely 'candidate' if 'false_positive' was positive), potentially by handling collinearity or simplifying the model, but at the cost of slightly lower Sensitivity compared to GLM/GAM.
+
+- GLM with Interactions: The specific interaction terms added in this test significantly degraded performance (AUC 0.7510, Accuracy 0.7498), particularly hurting Specificity. This suggests the chosen interactions were not beneficial and may have led to overfitting or were not representative of the true underlying relationships.
+
+## Overall Conclusions
+Based on these results, the GAM using the original scaled features stands out as the most promising model, offering the best balance of overall predictive power (highest AUC and Accuracy) while effectively modeling the non-linearities present in the data.
+
+The standard GLM, Ridge, and Lasso models also provide competitive performance and could be considered strong alternatives, especially if model simplicity (Lasso potentially performs feature selection) or high Specificity (Ridge/Lasso) are prioritized. Further tuning of the prediction probability threshold for any of these top models (GAM, GLM, Ridge, Lasso) could optimize the balance between Sensitivity and Specificity based on specific application requirements (e.g., minimizing false negatives vs. minimizing false positives). The PCA-based approaches and the tested interaction GLM appear less effective based on this comparison.
