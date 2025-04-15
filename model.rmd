@@ -1,5 +1,5 @@
 ---
-title: "KOI analysis - Logistic Regression Model"
+title: "KOI analysis - Models"
 author: "Davide Tonetto"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 output:
