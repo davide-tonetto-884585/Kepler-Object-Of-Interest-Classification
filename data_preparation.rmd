@@ -43,9 +43,9 @@ knitr::opts_chunk$set(
 ```
 
 # Data description - Kepler Objects of Interest (KOIs)
-KOIs are well vetted, periodic, transit-like events in the Kepler data. The Kepler Project identifies these objects from the TCE list for further vetting. Some objects will be flagged as false positives.
+KOIs are well-vetted, periodic, transit-like events in the Kepler data. The Kepler Project identifies these objects from the TCE list for further vetting. Some objects will be flagged as false positives.
 
-All KOI tables are displayed in a single, interactive environment with separate tabs for each table (e.g., Q1-6, Q1-8, cumulative, etc). Column selection and filtering applies to all tabs, allowing easier comparison of values across KOI tables.
+All KOI tables are displayed in a single, interactive environment with separate tabs for each table (e.g., Q1-6, Q1-8, cumulative, etc). Column selection and filtering apply to all tabs, allowing easier comparison of values across KOI tables.
 
 ## Dataset Selection and Characteristics
 The dataset selected for this statistical analysis aimed at predicting exoplanet status is the Q1-Q17 Data Release 25 (DR 25) Kepler Objects of Interest (KOI) table. This specific table was chosen due to several key characteristics that make it particularly well-suited for developing robust statistical models:
@@ -65,7 +65,7 @@ Basic identifiers linking the Kepler Object of Interest (KOI) to the target star
 - **`kepoi_name`**: KOI Name - Unique identifier for a Kepler Object of Interest (KOI), format KNNNNN.DD. The integer part identifies the target star, the decimal part identifies the specific transiting object.
 
 ### Exoplanet Archive Information
-Status and naming conventions as maintained by the NASA Exoplanet Archive, reflecting the official disposition and vetting status.
+Status and naming conventions are maintained by the NASA Exoplanet Archive, reflecting the official disposition and vetting status.
 
 - **`kepler_name`**: Kepler Name - Official name ("Kepler-Nn") assigned to confirmed or validated planets.
 - **`koi_disposition`**: Exoplanet Archive Disposition - The classification status of the KOI within the Exoplanet Archive (e.g., CANDIDATE, FALSE POSITIVE, CONFIRMED, NOT DISPOSITIONED).
@@ -183,7 +183,7 @@ print(dfSummary(koi_data), method = "render")
 
 ## Response variable: koi_pdisposition 
 Let's look at the two disposition variables and see how they compare.
-`koi_disposition` indicate the category of this KOI from the Exoplanet Archive. Current values are CANDIDATE, FALSE POSITIVE, NOT DISPOSITIONED or CONFIRMED. All KOIs marked as CONFIRMED are also listed in the Exoplanet Archive Confirmed Planet table. Designations of CANDIDATE, FALSE POSITIVE, and NOT DISPOSITIONED are taken from the Disposition Using Kepler Data.
+`koi_disposition` indicates the category of this KOI from the Exoplanet Archive. Current values are CANDIDATE, FALSE POSITIVE, NOT DISPOSITIONED, or CONFIRMED. All KOIs marked as CONFIRMED are also listed in the Exoplanet Archive Confirmed Planet table. Designations of CANDIDATE, FALSE POSITIVE, and NOT DISPOSITIONED are taken from the Disposition Using Kepler Data.
 Let's see how many of each disposition there are.
 ```{r}
 # Using Exoplanet Archive disposition

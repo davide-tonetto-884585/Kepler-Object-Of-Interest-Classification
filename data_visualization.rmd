@@ -108,10 +108,10 @@ summary(pca_result)
 fviz_eig(pca_result, addlabels = TRUE)
 ```
 
-From the eigenvalues, we can see that the first two principal components explain approximately 32% of the total variance. This suggests that the first two principal components does not capture much of the variability in the data. We need the first 11 PCA to get over 90% of the variance, suggesting that the underlying structure of the data (based on these numerical variables) is quite complex. There isn't a simple, low-dimensional linear subspace that captures most of the information.
+From the eigenvalues, we can see that the first two principal components explain approximately 32% of the total variance. This suggests that the first two principal components do not capture much of the variability in the data. We need the first 11 PCA to get over 90% of the variance, suggesting that the underlying structure of the data (based on these numerical variables) is quite complex. There isn't a simple, low-dimensional linear subspace that captures most of the information.
 
 ## PCA Loadings
-Show how original variables contribute to each PC using rotation matrix.
+Show how original variables contribute to each PC using a rotation matrix.
 The loadings tell us how much each original variable contributes to each principal component. Larger absolute values mean stronger influence. The sign (+/-) indicates the direction of the correlation.
 ```{r}
 print(pca_result$rotation)
@@ -128,7 +128,7 @@ fviz_pca_var(pca_result,
 
 Analysis of the component loadings revealed distinct patterns captured by the principal components.
 
-- PC1 (~17% Var): Seems to represent a contrast between orbital size/period and temperature. It has high positive loadings for `koi_period`, `koi_sma`, `koi_dor` (larger orbits) and high negative loadings for `koi_teq` (cooler temperatures associated with larger orbits). Stellar properties (`koi_slogg`, `koi_steff`, `koi_smass`) also contribute moderately.
+- PC1 (~17% Var): This seems to represent a contrast between orbital size/period and temperature. It has high positive loadings for `koi_period`, `koi_sma`, `koi_dor` (larger orbits) and high negative loadings for `koi_teq` (cooler temperatures associated with larger orbits). Stellar properties (`koi_slogg`, `koi_steff`, `koi_smass`) also contribute moderately.
 - PC2 (~15% Var): Also strongly related to orbital size/period (positive loadings for `koi_period`, `koi_sma`, `koi_dor`) but also strongly incorporates stellar temperature (`koi_steff` positive loading) and limb darkening (`koi_ldm_coeff1` negative, `koi_ldm_coeff2` positive).
 - PC3 (~14% Var): Primarily related to stellar properties, contrasting stellar radius/insolation (`koi_srad`, `koi_insol` positive) with stellar surface gravity (`koi_slogg` negative). Orbital size variables also contribute moderately.
 - PC4 (~12% Var): Dominated by relative planet size and transit geometry, with high negative loadings for `koi_prad`, `koi_ror` (planet/star radius ratio), and `koi_impact`.
@@ -197,7 +197,7 @@ ggplot(koi_data %>% filter(!is.na(koi_pdisposition)), aes(x = koi_pdisposition, 
   theme(legend.position = "none") # Hide legend as fill is redundant
 ```
 
-This plot shows the number of KOIs classified as CANDIDATE vs. FALSE POSITIVE by the Kepler pipeline (within the loaded dataset, potentially after some filtering/NA removal). We can observe the relative balance between these classes, which is important context for model building and evaluation (e.g., calculating baseline accuracy). The classes appear reasonably balanced in this dataset.
+This plot shows the number of KOIs classified as CANDIDATE vs. FALSE POSITIVE by the Kepler pipeline (within the loaded dataset, potentially after some filtering/NA removal). We can observe the relative balance between these classes, which is an important context for model building and evaluation (e.g., calculating baseline accuracy). The classes appear reasonably balanced in this dataset.
 
 ## Stellar Metallicity vs. Planetary Radius
 Explore if planet size relates to the host star's metallicity.
@@ -274,7 +274,7 @@ ggplot(
   annotation_logticks(sides = "lb") # Add log ticks to both axes
 ```
 
-This fundamental plot shows planet radius against orbital period. We can identify known exoplanet populations: Hot Jupiters (large radius, short period - top left), potentially a "Neptunian desert" (a region with fewer Neptune-sized planets at very short periods), and the bulk of smaller planets (Super-Earths/Mini-Neptunes). Coloring by disposition helps visualize where candidates (blue), and false positives (red) lie. False positives might cluster in certain areas (e.g., very large radii suggesting eclipsing binaries) or be scattered throughout.
+This fundamental plot shows the planet radius against the orbital period. We can identify known exoplanet populations: Hot Jupiters (large radius, short period - top left), potentially a "Neptunian desert" (a region with fewer Neptune-sized planets at very short periods), and the bulk of smaller planets (Super-Earths/Mini-Neptunes). Coloring by disposition helps visualize where candidates (blue), and false positives (red) lie. False positives might cluster in certain areas (e.g., very large radii suggesting eclipsing binaries) or be scattered throughout.
 
 ## Insolation Flux vs. Planetary Radius
 Explore potential atmospheric regimes based on stellar energy received.

@@ -195,7 +195,7 @@ The model built with PCA features is significantly better than random guessing b
 - Strength: It excels at finding true candidates (High Sensitivity).
 - Weakness: It performs poorly at identifying false_positives, incorrectly labeling many of them as candidates (Low Specificity, leading to many False Positives).
 
-In conclusion, while it captures most real candidates, predictions of candidate have relatively low confidence (Low Precision), whereas predictions of false_positive are more reliable (Higher Negative Predictive Value).
+In conclusion, while it captures most real candidates, predictions of candidates have relatively low confidence (Low Precision), whereas predictions of false_positive are more reliable (Higher Negative Predictive Value).
 Implications:
 
 If the goal is discovery (finding as many potential candidates as possible for follow-up, even if many are false alarms), this model might be useful due to its high sensitivity. If the goal is high confidence classification (being sure that predicted candidates are indeed candidates), this model is less suitable due to its low precision.
@@ -283,11 +283,11 @@ The logistic regression model using the first 11 principal components shows that
 
 ### Residual analysis.
 - **Plot 1: Residuals vs Fitted (Linear Predictor)**
-  Look for: Lack of strong patterns, random scatter around the smoothed line (though some banding is expected for binary data). Curvature might indicate link function issues or missing non-linear terms.
+  Look for a lack of strong patterns, random scatter around the smoothed line (though some banding is expected for binary data). Curvature might indicate link function issues or missing non-linear terms.
 - **Plot 2: Scale-Location**
-  Look for: Relatively flat smoothed line, indicating variance is somewhat constant across fitted values. Less critical for binomial GLM than OLS.
+  Look for a relatively flat smoothed line, indicating variance is somewhat constant across fitted values. Less critical for binomial GLM than OLS.
 - **Plot 3: Residuals vs Leverage**
-  Look for: Points with high leverage (far right) AND large standardized residuals (far top/bottom). Points outside Cook's distance contours (dashed lines) are influential.
+  Look for points with high leverage (far right) AND large standardized residuals (far top/bottom). Points outside Cook's distance contours (dashed lines) are influential.
 ```{r}
 plot(glm_model_pca, which = c(1, 3, 5))
 ```
@@ -305,15 +305,15 @@ linear_pcs <- setdiff(names(train_data_final)[names(train_data_final) != "target
 ```
 
 ### Outlier analysis
-Check for influential points using cook's distance.
+Check for influential points using Cook's distance.
 ```{r}
 influenceIndexPlot(glm_model_pca, vars = "C")
 ```
-The cook’s distance plot does not give indication of influential points since all the points have less than 0.5 as cook’s distance.
+The Cook’s distance plot does not give an indication of influential points since all the points have less than 0.5 as the Cook’s distance.
 
 ### Model improvement
 To improve the Logistic regression model we can try the following approach:
-- **Adding Non-linear Terms**: Introduce polynomial terms (e.g., poly(PC3, 2), poly(PC4, 2)) or splines (e.g., using ns() or bs() from the splines package) for the significant PCs into your glm formula.
+- **Adding Non-linear Terms**: Introduce polynomial terms (e.g., poly(PC3, 2), poly(PC4, 2)) or splines (e.g., using ns() or bs() from the splines package) for the significant PCs into your GLM formula.
 
 We now use smooth functions (splines) to automatically model non-linearities by fitting a generalized additive model (GAM).
 ```{r}

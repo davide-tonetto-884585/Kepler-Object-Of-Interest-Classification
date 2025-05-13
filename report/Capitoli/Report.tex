@@ -12,7 +12,7 @@ The dataset used for this project is the \textbf{Kepler Object of Interest (KOI)
 Therefore, the Q1-Q17 DR 25 KOI table was selected because its **rigorous, automated, and uniform classification methodology provides the most suitable foundation for building a statistical model** intended to predict whether an object is likely an exoplanet based on the parameters derived consistently from the Kepler pipeline and vetting process. This minimizes biases that could arise from aggregating data processed or vetted using different methods over time, as found in the Cumulative table, or from incorporating non-uniform manual assessments, as in the Supplemental table.
 
 \section{An overview of the dataset}
-Let's start by understanding what the dataset contains, in particular what are KOI and the details of each column used in the analysis.
+Let's start by understanding what the dataset contains, in particular, what are KOI and the details of each column used in the analysis.
 
 \subsection{Kepler Object of Interest (KOI)}
 A \textbf{Kepler Object of Interest (KOI)} is a target star observed by NASA's Kepler space telescope that exhibits transit-like signals in its photometric light curve data. These signals meet specific criteria suggesting they might be caused by an object passing in front of (transiting) the star, with characteristics initially consistent with those of an exoplanet.
@@ -56,8 +56,8 @@ The dataset contains 8054 rows and 142 columns, each row representing a differen
     \item \texttt{koi\_sma} - \textbf{Orbit Semi-Major Axis (AU):} Half the longest diameter of the orbit (AU).
     \item \texttt{koi\_incl} - \textbf{Inclination (degrees):} Angle between the orbital plane and the plane of the sky.
     \item \texttt{koi\_dor} - \textbf{Planet-Star Distance over Star Radius:} Distance at mid-transit normalized by stellar radius (Dimensionless).
-    \item \texttt{koi\_ldm\_coeff1} - \textbf{Limb Darkening Coefficient 1:} First coefficient for the limb darkening model used in fit.
-    \item \texttt{koi\_ldm\_coeff2} - \textbf{Limb Darkening Coefficient 2:} Second coefficient for the limb darkening model used in fit.
+    \item \texttt{koi\_ldm\_coeff1} - \textbf{Limb Darkening Coefficient 1:} First coefficient for the limb darkening model used in the fit.
+    \item \texttt{koi\_ldm\_coeff2} - \textbf{Limb Darkening Coefficient 2:} Second coefficient for the limb darkening model used in the fit.
     \item \texttt{koi\_smet} - \textbf{Stellar Metallicity ([Fe/H]):} Log base-10 of the Fe/H ratio relative to solar (dex).
 \end{itemize}
 
@@ -71,7 +71,7 @@ This disposition may differ from the final classification in the Exoplanet Archi
 
 \chapter{Analysis}
 \section{Data preprocessing}
-In the \texttt{data\_preparation.rmd} file, the dataset is cleaned from rows with an high rate of missing values and factor variables are prepared for further analysis. Then in the \texttt{data\_visualization.rmd} file, the dataset is visualized to understand the distribution of the variables and the relationship between them.
+In the \texttt{data\_preparation.rmd} file, the dataset is cleaned from rows with a high rate of missing values and factor variables are prepared for further analysis. Then in the \texttt{data\_visualization.rmd} file, the dataset is visualized to understand the distribution of the variables and the relationship between them.
 \subsection{Correlation matrix}
 The following is the correlation matrix of the used columns for the analysis. The correlation matrix shows us that there are some strong relationships between some variables and will help us to understand the dataset better.
 \begin{figure}[H]
@@ -81,7 +81,7 @@ The following is the correlation matrix of the used columns for the analysis. Th
 \end{figure}
 
 \section{Visualizations}
-The following are some plots of the used columns for the analysis that shows the distribution of the variables and the relationship between them.
+The following plots illustrate the distribution of the variables and their relationships based on the used columns for analysis.
 
 \begin{figure}[H]
     \centering
@@ -150,13 +150,13 @@ Principal Component Analysis (PCA) is a dimensionality reduction technique used 
     \label{fig:pca_plots}
 \end{figure}
 
-Figure \ref{fig:pca_plots}-(a) shows taht the first two principal components explain only 32\% of the variance, suggesting complex data structure requiring 11 PCA to capture over 90\% of the variance.
+Figure \ref{fig:pca_plots}-(a) shows that the first two principal components explain only 32\% of the variance, suggesting a complex data structure requiring 11 PCA to capture over 90\% of the variance.
 
-Figure \ref{fig:pca_plots}-(b) shows the loadings of the first two principal components allowing us to understand the relationship between the original variables and the principal components. In general the loadings analyses report the following:
+Figure \ref{fig:pca_plots}-(b) shows the loadings of the first two principal components allowing us to understand the relationship between the original variables and the principal components. In general, the loadings analyses report the following:
 \begin{itemize}
     \item \textbf{PC1 (17\% variance):} Captures the relationship between orbital characteristics and temperature, showing high positive loadings for orbital parameters (period, semi-major axis, planet-star distance ratio) and negative loadings for equilibrium temperature. Moderate contributions from stellar properties.
-    \item \textbf{PC2 (15\% variance):} Primarily represents orbital parameters and stellar temperature relationships, with positive loadings for orbital period, semi-major axis, and stellar effective temperature, while showing contrasting patterns in limb darkening coefficients.
-    \item \textbf{PC3 (14\% variance):} Dominated by stellar characteristics, particularly contrasting stellar radius and insolation (positive loadings) with surface gravity (negative loading). Orbital parameters show moderate influence.
+    \item \textbf{PC2 (15\% variance):} Primarily represents orbital parameters and stellar temperature relationships, with positive loadings for the orbital period, semi-major axis, and stellar effective temperature, while showing contrasting patterns in limb darkening coefficients.
+    \item \textbf{PC3 (14\% variance):} Dominated by stellar characteristics, particularly contrasting stellar radius, and insolation (positive loadings) with surface gravity (negative loading). Orbital parameters show moderate influence.
     \item \textbf{PC4 (12\% variance):} Reflects planetary size and transit geometry, with strong negative loadings for planetary radius, radius ratio, and impact parameter.
     \item \textbf{PC5 (8\% variance):} Represents transit signal characteristics, showing strong negative loadings for transit depth and model signal-to-noise ratio.
     \item \textbf{Later PCs:} Capture more subtle relationships:
@@ -202,14 +202,14 @@ Many different models were tested. The following table shows the results of the 
 \end{figure}
 
 \subsection{Data preprocessing}
-The \textbf{null values} in the dataset were \textbf{imputed} after splitting the dataset into train and test set by applying simple median/mode imputation. This simple but effective approach was chosen because it was the most efficient and because the number of missing values was small for the interested columns.
+The \textbf{null values} in the dataset were \textbf{imputed} after splitting the dataset into train and test sets by applying simple median/mode imputation. This simple but effective approach was chosen because it was the most efficient and because the number of missing values was small for the interested columns.
 
-Also the numerical columns were \textbf{scaled} before training the models. Also in this case the scaler is trained on the train set and then applied to the test set to avoid data leakage.
+Also, the numerical columns were \textbf{scaled} before training the models. Also in this case the scaler is trained on the train set and then applied to the test set to avoid data leakage.
 
 \subsection{Outliers and Correlated Features}
-Fro some models the \textbf{outliers} were \textbf{removed} from the dataset by computing the Cook's Distance for each observation and removing those with a Cook's Distance greater than 0.5. This approach was chosen because it was the most efficient and because the number of outliers was small for the interested columns.
+For some models, the \textbf{outliers} were \textbf{removed} from the dataset by computing the Cook's Distance for each observation and removing those with a Cook's Distance greater than 0.5. This approach was chosen because it was the most efficient and because the number of outliers was small for the interested columns.
 
-The \textbf{correlated features} were \textbf{removed} from some model by computing the VIF (Variance Inflation Factor) for each feature and removing those with a VIF greater than 10.
+The \textbf{correlated features} were \textbf{removed} from some models by computing the VIF (Variance Inflation Factor) for each feature and removing those with a VIF greater than 10.
 
 \chapter{Conclusions}
 \section{Original Features vs. PCA Features}
@@ -226,5 +226,5 @@ Models trained directly on the original (scaled) features generally demonstrated
 \section{Overall Conclusions}
 Based on these results, the GAM using the original scaled features stands out as the most promising model, offering the best balance of overall predictive power (highest AUC and Accuracy) while effectively modeling the non-linearities present in the data.
 
-The standard GLM, Ridge, and Lasso models also provide competitive performance and could be considered strong alternatives, especially if model simplicity (Lasso potentially performs feature selection) or high Specificity (Ridge/Lasso) are prioritized. Further tuning of the prediction probability threshold for any of these top models (GAM, GLM, Ridge, Lasso) could optimize the balance between Sensitivity and Specificity based on specific application requirements (e.g., minimizing false negatives vs. minimizing false positives). The PCA-based approaches and the tested interaction GLM appear less effective based on this comparison.
+The standard GLM, Ridge, and Lasso models also provide competitive performance and could be considered strong alternatives, especially if model simplicity (Lasso potentially performs feature selection) or high Specificity (Ridge/Lasso) is prioritized. Further tuning of the prediction probability threshold for any of these top models (GAM, GLM, Ridge, Lasso) could optimize the balance between Sensitivity and Specificity based on specific application requirements (e.g., minimizing false negatives vs. minimizing false positives). The PCA-based approaches and the tested interaction GLM appear less effective based on this comparison.
 
