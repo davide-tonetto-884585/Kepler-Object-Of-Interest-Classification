@@ -328,11 +328,16 @@ gam_model <- gam(gam_formula,
 summary(gam_model)
 ```
 
-plot the model
+Plot of the splines effect:
 ```{r}
-plot(gam_model, pages = 1)
+par(mfrow = c(2, 3))
+for (i in 1:11) {
+  plot(gam_model, select = i, shade = TRUE, shade.col = "lightblue")
+  abline(h = 0, lty = "dashed")
+}
 ```
 
+As we can see from the plots all the splines are significant.
 Now test the model on the test set.
 ```{r}
 gam_probs <- predict(gam_model, newdata = test_data_final, type = "response")

@@ -646,6 +646,31 @@ gam_model <- gam(gam_formula,
 summary(gam_model)
 ```
 
+Plot of the splines effect:
+```{r}
+par(mfrow = c(2, 3))
+for (i in 1:11) {
+  plot(gam_model, select = i, shade = TRUE, shade.col = "lightblue")
+  abline(h = 0, lty = "dashed")
+}
+```
+
+As we can see from the plots, not all the splines are significant. For example `koi_period`, `koi_insol`, `koi_smass`, `koi_period`, `koi_incl`, `koi_depth` and `koi_impact` are not significant. We will try to remove them from the model.
+```{r}
+gam_model <- update(gam_model, . ~ . - s(koi_period) - s(koi_insol) - s(koi_smass) - s(koi_period) - s(koi_incl) - s(koi_depth) - s(koi_impact))
+summary(gam_model)
+```
+
+Now we can see that all the splines are significant.
+Plot of the splines effect:
+```{r}
+par(mfrow = c(2, 3))
+for (i in 1:6) {
+  plot(gam_model, select = i, shade = TRUE, shade.col = "lightblue")
+  abline(h = 0, lty = "dashed")
+}
+```
+
 Predict on the test set and evaluate.
 ```{r}
 gam_probs <- predict(gam_model, newdata = test_data_scaled, type = "response")
