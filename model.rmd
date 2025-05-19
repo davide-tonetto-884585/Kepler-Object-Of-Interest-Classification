@@ -17,8 +17,7 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-# Set CRAN mirror
-options(repos = c(CRAN = "[https://cloud.r-project.org](https://cloud.r-project.org)"))
+install.packages(c("parallelly", "future"), type = "binary", repos = "https://cloud.r-project.org")
 
 # Function to install and load required packages
 packages <- c("tidyverse", "caret", "pROC", "car", "ggplot2", "mgcv", "glmnet")
@@ -26,7 +25,7 @@ packages <- c("tidyverse", "caret", "pROC", "car", "ggplot2", "mgcv", "glmnet")
 # Install packages not yet installed
 installed_packages <- packages %in% rownames(installed.packages())
 if (any(!installed_packages)) {
-  install.packages(packages[!installed_packages])
+  install.packages(packages[!installed_packages], repos = "https://cloud.r-project.org")
 }
 
 # Load all required packages
@@ -65,9 +64,8 @@ koi_data_raw <- readRDS(data_file_path)
 ## Select columns
 Define target and predictor columns. **Review this list carefully.**
 ```{r select-columns}
-target_variable_name <- "koi_pdisposition" # Or 'koi_disposition'
+target_variable_name <- "koi_pdisposition"
 predictor_cols <- c(
-  # Numeric Predictors (Examples)
   "koi_period", "koi_duration", "koi_depth", "koi_prad", "koi_teq",
   "koi_insol", "koi_model_snr", "koi_steff", "koi_slogg", "koi_srad",
   "koi_smass", "koi_impact", "koi_ror", "koi_srho", "koi_sma", "koi_incl",
@@ -146,14 +144,13 @@ if (nrow(train_data) < rows_before_na_target_train) print("Removed rows with NA 
 for (col in names(train_medians)) {
   if (col %in% names(test_data) && any(is.na(test_data[[col]]))) {
     test_data[[col]][is.na(test_data[[col]])] <- train_medians[[col]]
-    # print(paste("Imputed NAs in TEST:", col))
   }
 }
+
 # Impute character/factor with *training* mode
 for (col in names(train_modes)) {
   if (col %in% names(test_data) && any(is.na(test_data[[col]]))) {
     test_data[[col]][is.na(test_data[[col]])] <- train_modes[[col]]
-    # print(paste("Imputed NAs in TEST:", col))
   }
 }
 # Handle any remaining NAs in test set predictors if medians/modes couldn't be calculated or applied
@@ -161,7 +158,6 @@ na_check_test <- colSums(is.na(test_data %>% select(-all_of(target_variable_name
 if (any(na_check_test > 0)) {
   print("Warning: NAs still present in test set predictors after imputation:")
   print(na_check_test[na_check_test > 0])
-  # Consider removing these test rows or using a more robust imputation
   test_data <- test_data[complete.cases(test_data %>% select(-all_of(target_variable_name))), ]
   print("Removed test rows with remaining NAs in predictors.")
 }
@@ -175,29 +171,6 @@ if (nrow(test_data) < rows_before_na_target_test) print("Removed rows with NA ta
 ## Convert Predictors and Target to Factors
 Ensure categorical predictors and the target variable are factors with consistent levels.
 ```{r convert-factors}
-factor_cols_to_convert <- c(
-  "koi_fpflag_nt", "koi_fpflag_ss", "koi_fpflag_co", "koi_fpflag_ec" # Flags
-)
-factor_cols_exist_train <- factor_cols_to_convert[factor_cols_to_convert %in% names(train_data)]
-
-# Convert predictor factors in training data
-if (length(factor_cols_exist_train) > 0) {
-  train_data <- train_data %>%
-    mutate(across(all_of(factor_cols_exist_train), as.factor))
-  print(paste("Converted predictor(s) to factor in train data:", paste(factor_cols_exist_train, collapse = ", ")))
-}
-
-# Convert predictor factors in test data (using levels from training data if possible)
-factor_cols_exist_test <- factor_cols_to_convert[factor_cols_to_convert %in% names(test_data)]
-if (length(factor_cols_exist_test) > 0) {
-  for (col in factor_cols_exist_test) {
-    # Ensure levels in test match train, adding if necessary
-    train_levels <- levels(train_data[[col]])
-    test_data[[col]] <- factor(test_data[[col]], levels = train_levels)
-  }
-  print(paste("Converted predictor(s) to factor in test data:", paste(factor_cols_exist_test, collapse = ", ")))
-}
-
 # Convert target variable to factor with desired levels and labels
 train_data[[target_variable_name]] <- factor(train_data[[target_variable_name]],
   levels = c("CANDIDATE", "FALSE POSITIVE"),
@@ -207,17 +180,13 @@ test_data[[target_variable_name]] <- factor(test_data[[target_variable_name]],
   levels = c("CANDIDATE", "FALSE POSITIVE"),
   labels = c("candidate", "false_positive")
 )
+print("Converted target variable to factor with levels:")
+print(levels(train_data[[target_variable_name]]))
 
 # Define positive class based on the new factor levels
 positive_class <- levels(train_data[[target_variable_name]])[2]
 if (is.na(positive_class)) stop("Could not determine positive class level after factoring.")
 print(paste("Positive class for evaluation:", positive_class))
-
-# Check levels of predictor factors
-for (var in factor_cols_exist_train) {
-  print(paste("Levels in", var, "(Train):"))
-  print(table(train_data[[var]]))
-}
 ```
 
 ## Scale Numerical Predictors
@@ -259,6 +228,52 @@ glm_original_model <- glm(glm_original_formula,
 summary(glm_original_model)
 ```
 
+## Model interpretation
+Variables Associated with an **INCREASED** Likelihood of being a **"FALSE POSITIVE"**:
+
+
+- **koi_duration (1.15093 \*\*\*)**: Longer transit durations are associated with a higher chance of being a "false_positive".  
+  This might seem counterintuitive, as real planets have specific durations. However, some types of false positives (e.g., grazing eclipsing binaries, certain stellar variability) might also produce long-duration events that get flagged.
+
+- **koi_depth (2.19920 \*\*\*)**: Deeper transits are associated with a higher chance of being a "false_positive".  
+  This is also potentially counterintuitive, as deep transits are strong signals. However, very deep events might be more likely to be stellar eclipsing binaries (another star, not a planet) rather than a planet, especially if `koi_ror` is also large.
+
+- **koi_teq (1.82665 \*\*\*)**: Higher equilibrium temperatures are associated with a higher chance of being a "false_positive".  
+  This could mean that objects with extremely high calculated T_eq are more likely to be misclassified astrophysical phenomena or certain types of eclipsing binaries rather than stable planetary candidates.
+
+- **koi_slogg (0.67690 \*\*\*)**: Higher stellar surface gravity (log₁₀(cm s⁻²)) is associated with a higher chance of being a "false_positive".  
+  Stars with very high surface gravity are typically compact (e.g., some types of dwarfs or even white dwarfs if they were in the sample). Transits around these might have different characteristics or be mimicked by phenomena that are ultimately classified as false positives. Alternatively, if true candidates are mostly around typical main-sequence stars, deviations from that `slogg` might increase FP likelihood.
+
+- **koi_smass (0.44922 \*\*\*)**: Higher stellar mass is associated with a higher chance of being a "false_positive".  
+  Similar to `koi_slogg`, perhaps transits around more massive stars in dataset are more prone to being astrophysical false positives or are harder to distinguish.
+
+- **koi_impact (0.53968 \*\*\*)**: A higher impact parameter is associated with a higher chance of being a "false_positive".  
+  This makes perfect sense, a higher impact parameter means that the transit is more grazing. Grazing transits often have a V-shape (rather than a U-shape) and are a common characteristic of eclipsing binaries or other false positive scenarios.
+
+- **koi_ror (2.55320 \*\*\*)**: A larger planet-to-star radius ratio is associated with a higher chance of being a "false_positive".  
+  This is a very strong indicator. While a larger planet is easier to detect, a very large `koi_ror` often points towards an eclipsing binary system (two stars orbiting each other) rather than a planet transiting a star, as planets are generally much smaller than their host stars. This is a classic false positive signature.
+
+- **koi_dor (0.58369 \*\*\*)**: A larger planet-star distance over star radius (distance at mid-transit normalized by stellar radius) is associated with a higher chance of being a "false_positive".  
+  `koi_dor` is related to the impact parameter and how far from the star's center the transit occurs, scaled by the star's radius. A larger value could indicate a more grazing transit geometry, consistent with `koi_impact` also pointing towards "false_positive".
+
+
+Variables Associated with a **DECREASED** Likelihood of being a **"FALSE POSITIVE"** (i.e., **INCREASED** Likelihood of being a **"CANDIDATE"**):
+
+- **koi_insol (-0.44363 \*\*\*)**: Higher insolation flux is associated with a lower chance of being a "false_positive" (i.e., more likely a "candidate").  
+  This suggests that objects receiving more stellar flux (often closer planets) are more likely to be genuine candidates in the dataset once other factors are taken into account.
+
+- **koi_steff (-0.48874 \*\*)**: Higher stellar effective temperature is associated with a lower chance of being a "false_positive" (i.e., more likely a "candidate").  
+  Transits around hotter stars might be cleaner or less prone to certain types of astrophysical mimics that get flagged as false positives when occurring around cooler stars (which can have more stellar activity).
+
+- **koi_incl (-0.41634 \*\*\*)**: Higher inclination is associated with a lower chance of being a "false_positive" (i.e., more likely a "candidate").  
+  This is right. An inclination closer to 90 degrees (edge-on) is required for a transit. If "higher" `koi_incl` means closer to 90 degrees, then a more edge-on system is less likely to be a false positive and more likely a true candidate. The model is correctly identifying that good, central (or near-central) transits are more likely to be candidates.
+
+- **koi_ldm_coeff1 (-1.05599 \*)**, **koi_ldm_coeff2 (-0.98381 \*\*)**: Specific trends in these limb darkening coefficients are associated with a lower chance of being a "false_positive".  
+  This implies that transit light curve shapes that are well-fit with these particular limb darkening characteristics are more typical of genuine planetary candidates than false positives.
+
+- **koi_smet (-0.56487 \*\*\*)**: Higher stellar metallicity is associated with a lower chance of being a "false_positive" (i.e., more likely a "candidate").  
+  This aligns very well with astrophysical understanding since stars with higher metallicity are known to be more likely to host planets (especially gas giants). So, the model finds that higher metallicity makes an object more likely to be a genuine candidate.
+
 ## Model Performance
 Predict on the test set and evaluate.
 ```{r model-performance}
@@ -270,8 +285,7 @@ original_probs <- pmax(pmin(original_probs, 1 - 1e-15), 1e-15)
 threshold <- 0.5
 # Use the levels from the *test* data target factor for creating prediction factor
 test_target_levels <- levels(test_data_scaled[[target_variable_name]])
-negative_class <- test_target_levels[1] # Should be 'candidate'
-# Note: positive_class was defined earlier based on train_data levels
+negative_class <- test_target_levels[1] 
 
 original_preds <- factor(ifelse(original_probs > threshold, positive_class, negative_class),
   levels = test_target_levels
@@ -508,6 +522,50 @@ glm_original_model <- glm(glm_original_formula,
 summary(glm_original_model)
 ```
 
+## Updated interpretation
+Overall Model Changes & Fit:
+
+- **AIC**: The AIC has decreased from **5241.5** in the previous model to **5092.1** in this model. A lower AIC generally suggests a better trade-off between model fit and complexity. This is an improvement.
+- **Deviance**: The residual deviance has also decreased (**5054.1** vs. **5199.5**), indicating a better fit to the data with this new model specification.
+- **Predictors**: `koi_ldm_coeff2` is no longer present. This change in model structure is likely contributing to the improved AIC.
+
+
+Coefficients Interpretation (Positive Class: _"false_positive"_):
+
+- **(Intercept) 1.12710 (\*\*\*)**: When all scaled predictor variables are at their mean value (0), the log-odds of the KOI being a "false_positive" is 1.12710. This is highly significant.
+
+Variables Associated with an **INCREASED** Likelihood of being a **"FALSE POSITIVE"**:
+
+- **koi_duration (1.26967 \*\*\*)**: Longer transit durations are strongly associated with an increased likelihood of being a "false_positive". Consistent with the previous model, slightly stronger effect.
+
+- **koi_depth (0.78093 \*)**: Deeper transits are associated with an increased likelihood of being a "false_positive". Still positive, but the effect size and significance are notably reduced compared to the previous 2.19920 \*\*\*.
+
+- **koi_teq (2.12831 \*\*\*)**: Higher equilibrium temperatures are very strongly associated with an increased likelihood of being a "false_positive". Consistent, effect size increased from 1.82665 \*\*\*.
+
+- **koi_slogg (0.79903 \*\*\*)**: Higher stellar surface gravity is very strongly associated with an increased likelihood of being a "false_positive". Consistent, slightly stronger effect than 0.67690 \*\*\*.
+
+- **koi_smass (0.46510 \*\*\*)**: Higher stellar mass is strongly associated with an increased likelihood of being a "false_positive". Consistent, similar magnitude to 0.44922 \*\*\*.
+
+- **koi_impact (0.41540 \*\*\*)**: A higher impact parameter (more grazing transit) is strongly associated with an increased likelihood of being a "false_positive". Consistent, slightly smaller magnitude than 0.53968 \*\*\*.
+
+- **koi_ror (5.69350 \*\*\*)**: A larger planet-to-star radius ratio is very strongly associated with an increased likelihood of being a "false_positive". This effect has become much stronger—previously 2.55320 \*\*\*—highlighting `koi_ror` as an even more critical indicator of false positives.
+
+- **koi_dor (0.62047 \*\*\*)**: Larger planet-star distance over star radius (at mid-transit) is very strongly associated with an increased likelihood of being a "false_positive". Consistent, similar magnitude to 0.58369 \*\*\*.
+
+- **koi_ldm_coeff1 (0.18397 \*\*)**: This coefficient has flipped sign and changed significance. Previously -1.05599 \*, now positive. Indicates that higher values of this coefficient are now associated with false positives, possibly due to the removal of `koi_ldm_coeff2`.
+
+
+
+Variables Associated with a **DECREASED** Likelihood of being a **"FALSE POSITIVE"**:
+
+- **koi_insol (-1.20622 \*\*\*)**: Higher insolation flux is very strongly associated with a decreased likelihood of being a "false_positive". Consistent, and effect size more than doubled from -0.44363 \*\*\*.
+
+- **koi_steff (-0.17450 \*)**: Higher stellar effective temperature is associated with a decreased likelihood of being a "false_positive". Consistent, but effect size and significance reduced from -0.48874 \*\*.
+
+- **koi_incl (-0.24948 \*)**: Higher inclination (closer to 90°, more edge-on) is associated with a decreased likelihood of being a "false_positive". Consistent, but effect size and significance reduced from -0.41634 \*\*\*.
+
+- **koi_smet (-0.66341 \*\*\*)**: Higher stellar metallicity is very strongly associated with a decreased likelihood of being a "false_positive". Consistent, slightly stronger effect than -0.56487 \*\*\*.
+
 ## Model Evaluation without correlated predictors
 Predict on the test set and evaluate.
 ```{r}
@@ -661,6 +719,41 @@ gam_model <- update(gam_model, . ~ . - s(koi_period) - s(koi_insol) - s(koi_smas
 summary(gam_model)
 ```
 
+Parametric Coefficients (Linear Effects)
+
+These coefficients are interpreted like those in a standard GLM: they represent the change in the log-odds of being a `"false_positive"` for a one-unit increase in the (scaled) predictor, holding other variables constant.
+
+- **(Intercept) 1.00430 (\*\*\*)**: The baseline log-odds of a KOI being a `"false_positive"` is 1.00430 when all linear predictors are zero and the smooth functions are at their average effect. This is highly significant.
+- **koi_duration 1.41230 (\*\*\*)**: Longer transit durations significantly increase the log-odds of being a `"false_positive"`. (Odds Ratio ≈ e^1.41230 ≈ 4.10). This effect is consistent with and slightly stronger than in the previous GLM.
+- **koi_prad -0.19688 (p=0.45961)**: Planetary radius is not a significant linear predictor of `"false_positive"` status in this model.
+- **koi_model_snr -0.04401 (p=0.53163)**: The transit signal-to-noise ratio is not a significant linear predictor.
+- **koi_steff 0.23853 (\*)**: Higher stellar effective temperature (koi_steff) significantly increases the log-odds of being a `"false_positive"`. (Odds Ratio ≈ e^0.23853 ≈ 1.27).
+
+  **Important Change**: This is a flip in direction compared to the previous GLM where higher `koi_steff` decreased the odds of being a false positive. Now, in the context of this GAM (with other variables modeled non-linearly), higher stellar temperatures are associated with a higher likelihood of being a false positive. This suggests that the relationship is complex and was being influenced by the enforced linearity of other terms in the GLM.
+
+- **koi_ror 7.67484 (\*\*\*)**: The planet-to-star radius ratio (`koi_ror`) has a very large and highly significant positive effect on the log-odds of being a `"false_positive"`. (Odds Ratio ≈ e^7.67484 ≈ 2153). This remains an extremely strong indicator, likely identifying eclipsing binaries. The effect size is even larger than in the GLM.
+- **koi_srho 0.02748 (p=0.35658)**: Fitted stellar density is not a significant linear predictor.
+- **koi_ldm_coeff1 0.19630 (\*\*)**: The first limb darkening coefficient has a significant positive linear effect on the log-odds of being a `"false_positive"`. (Odds Ratio ≈ e^0.19630 ≈ 1.22). This is consistent with the GLM.
+
+Approximate Significance of Smooth Terms (Non-Linear Effects)
+
+For these variables, the relationship with the log-odds of being a `"false_positive"` is not assumed to be linear. The `edf` (estimated degrees of freedom) indicates the complexity of the curve; an `edf` close to 1 suggests a near-linear relationship, while higher values indicate more "wiggles" or non-linearity.
+
+- **s(koi_teq) edf=5.699 (\*\*\*)**: Equilibrium temperature (`koi_teq`) has a highly significant and non-linear relationship with the likelihood of being a `"false_positive"`. The `edf` of ~5.7 suggests a fairly complex curve. The linear GLM showed a simple positive association; this GAM indicates the true relationship is more nuanced across the range of `koi_teq`.
+- **s(koi_slogg) edf=4.830 (\*\*)**: Stellar surface gravity (`koi_slogg`) also has a highly significant and non-linear effect. The `edf` of ~4.8 indicates a complex relationship, not just a simple linear trend as was suggested by the GLM.
+- **s(koi_srad) edf=6.249 (p=0.49)**: The smooth term for stellar radius (`koi_srad`) is not significant. Even when allowing for a non-linear relationship, `koi_srad` does not significantly help predict `"false_positive"` status in this model.
+- **s(koi_dor) edf=8.097 (\*\*\*)**: The planet-star distance over star radius (`koi_dor`) has a highly significant and very complex non-linear relationship (high `edf` of ~8.1). This indicates that specific ranges or patterns in `koi_dor` are associated with `"false_positive"` likelihood in a way that a straight line cannot capture.
+- **s(koi_smet) edf=5.997 (\*\*\*)**: Stellar metallicity (`koi_smet`) has a highly significant and non-linear effect. The `edf` of ~6 suggests a complex curve. The GLM showed a linear negative effect (higher metallicity → less likely FP). The GAM suggests this relationship may not be consistently linear across all metallicity values; for instance, the benefit might plateau or change at very low/high metallicities.
+
+Summary and Key Insights from the GAM
+
+- **Non-Linearity Matters**: Several key predictors (`koi_teq`, `koi_slogg`, `koi_dor`, `koi_smet`) have significant non-linear relationships with the probability of a KOI being a `"false_positive"`. This means their influence is more complex than a simple positive or negative trend. Visualizing these smooth terms is crucial.
+- **koi_ror is King (for FPs)**: The planet-to-star radius ratio (`koi_ror`) remains an overwhelmingly strong linear predictor, with a massive coefficient, strongly indicating that large `koi_ror` values are characteristic of `"false_positives"` (likely eclipsing binaries).
+- **Reversal of koi_steff Effect**: The most notable change for linear terms is that `koi_steff` (stellar effective temperature) now increases the likelihood of a `"false_positive"`. This highlights how accounting for non-linearities in other variables can change the apparent effect of those kept linear. It suggests the relationship between `koi_steff` and disposition is context-dependent.
+- **Consistent Linear Effects**: `koi_duration` and `koi_ldm_coeff1` continue to show a positive linear association with `"false_positive"` likelihood.
+- **Persistent Non-Significance**: `koi_prad`, `koi_model_snr`, `koi_srho` (linear terms), and `koi_srad` (even as a smooth term) do not significantly contribute to the model.
+- **Improved Model Fit**: The GAM explains more deviance (45.7%) and has a higher pseudo R-squared (0.539) compared to the previous GLMs, suggesting it captures the underlying data patterns more effectively by allowing for these non-linearities.
+
 Now we can see that all the splines are significant.
 Plot of the splines effect:
 ```{r}
@@ -759,6 +852,8 @@ glm_interaction_model <- glm(interaction_formula,
 summary(glm_interaction_model)
 ```
 
+From the summary, we notice that this specific model output is not interpretable due to severe numerical problems, likely stemming from (quasi-)complete separation caused by the complexity of the interaction terms.
+
 Predict on the test set and evaluate.
 ```{r}
 interaction_probs <- predict(glm_interaction_model, newdata = test_data_scaled, type = "response")
@@ -825,6 +920,7 @@ y_train <- train_data_scaled[[target_variable_name]] # Target factor
 ## Fit the model
 ```{r}
 set.seed(42) # for reproducibility of CV folds
+lasso <- glmnet(x_train, y_train, family = "binomial", alpha = 1)
 cv_lasso_fit <- cv.glmnet(x_train, y_train,
   family = "binomial",
   alpha = 1,
@@ -834,9 +930,47 @@ cv_lasso_fit <- cv.glmnet(x_train, y_train,
 ```
 
 ## Plot the results
+Value of lambda selected via cross validation:
 ```{r}
 plot(cv_lasso_fit)
 ```
+
+```{r}
+cv_lasso_fit$lambda.min
+```
+
+Selected model in lasso path plot:
+```{r}
+plot(lasso, xvar = "lambda")
+abline(v = log(cv_lasso_fit$lambda.min), col = "red", lty = "dashed")
+```
+
+the Lasso estimated coefficients corresponding to the best lambda are:
+```{r}
+lasso_coef <- coef(lasso,  s=cv_lasso_fit$lambda.min)
+lasso_coef[lasso_coef[,1]!=0,]
+```
+
+## LASSO Model Interpretation
+
+The LASSO (Least Absolute Shrinkage and Selection Operator) model performs feature selection by shrinking some coefficients to zero. The non-zero coefficients below are those selected by LASSO as important predictors, using the `lambda.min` value from cross-validation.
+
+**Variables Associated with an INCREASED Likelihood of being a "FALSE POSITIVE" (Positive Coefficients):**
+
+-   **`(Intercept) 0.3658801`**: This is the baseline log-odds of a KOI being a "FALSE POSITIVE" when all other predictor variables in the model are zero.
+-   **`koi_ror (0.9173861)`**: A larger planet-to-star radius ratio. This is a very strong indicator. A very large `koi_ror` often points towards an eclipsing binary system rather than a planet.
+-   **`koi_teq (0.9106747)`**: Higher equilibrium temperature. Objects with extremely high calculated T_eq might be misclassified astrophysical phenomena.
+-   **`koi_depth (0.8213715)`**: Deeper transits. Very deep events might be more likely to be stellar eclipsing binaries.
+-   **`koi_duration (0.3712789)`**: Longer transit durations. Some types of false positives (e.g., grazing eclipsing binaries) can produce long-duration events.
+-   **`koi_impact (0.3371364)`**: Higher impact parameter. This means the transit is more grazing, which is common in false positive scenarios.
+-   **`koi_period (0.1994419)`**: Longer orbital periods. This suggests a slight increase in the likelihood of being a false positive.
+-   **`koi_model_snr (0.1879024)`**: Higher model signal-to-noise ratio. While counterintuitive, extremely high SNR events might sometimes be non-planetary or indicative of issues that lead to a false positive classification.
+-   **`koi_dor (0.1320083)`**: Larger planet-star distance over star radius. This can indicate a more grazing transit geometry.
+
+**Variables Associated with a DECREASED Likelihood of being a "FALSE POSITIVE" (i.e., INCREASED Likelihood of being a "CANDIDATE") (Negative Coefficients):**
+
+-   **`koi_incl (-0.6193954)`**: Higher orbital inclination. An inclination closer to 90 degrees (edge-on transit) is required for a true planetary transit, making it less likely to be a false positive.
+-   **`koi_smet (-0.4631438)`**: Higher stellar metallicity. Stars with higher metallicity are known to be more likely to host planets, making an object more likely to be a genuine candidate.
 
 ## Evaluate the model
 ```{r}
@@ -901,6 +1035,7 @@ plot(roc_lasso,
 ## Fit the model
 ```{r}
 set.seed(42) # for reproducibility of CV folds
+ridge <- glmnet(x_train, y_train, family = "binomial", alpha = 0)
 cv_ridge_fit <- cv.glmnet(x_train, y_train,
   family = "binomial",
   alpha = 0, # Set alpha to 0 for Ridge
@@ -910,9 +1045,55 @@ cv_ridge_fit <- cv.glmnet(x_train, y_train,
 ```
 
 ## Plot the results
+Value of lambda selected via cross validation:
 ```{r}
 plot(cv_ridge_fit)
 ```
+
+```{r}
+cv_ridge_fit$lambda.min
+```
+
+Selected model in ridge path plot:
+```{r}
+plot(ridge, xvar = "lambda")
+abline(v = log(cv_ridge_fit$lambda.min), col = "red", lty = "dashed")
+```
+
+the Lasso estimated coefficients corresponding to the best lambda are:
+```{r}
+ridge_coef <- coef(ridge,  s=cv_ridge_fit$lambda.min)
+ridge_coef[ridge_coef[,1]!=0,]
+```
+
+## Ridge Regression Model Interpretation
+
+Ridge regression is another regularization technique that helps to prevent overfitting by shrinking the coefficient estimates towards zero. Unlike LASSO, Ridge typically does not shrink coefficients to be exactly zero, so it tends to keep all predictors in the model. The interpretation of the coefficients is similar to GLM and LASSO.
+
+**Variables Associated with an INCREASED Likelihood of being a "FALSE POSITIVE" (Positive Coefficients from the Ridge model):**
+
+-   **`(Intercept) 0.39884348`**: The baseline log-odds of being a "FALSE POSITIVE" when other predictors are zero.
+-   **`koi_teq (1.01258905)`**: Higher equilibrium temperature. This is the strongest positive predictor, suggesting objects with very high T_eq are much more likely to be false positives.
+-   **`koi_depth (0.67426574)`**: Deeper transits. A strong indicator for false positives.
+-   **`koi_ror (0.65050228)`**: Larger planet-to-star radius ratio. Also a strong indicator, often pointing to eclipsing binaries.
+-   **`koi_duration (0.46405878)`**: Longer transit durations.
+-   **`koi_impact (0.46024229)`**: Higher impact parameter (more grazing transits).
+-   **`koi_prad (0.44766663)`**: Larger planetary radius. While larger planets are easier to detect, very large apparent radii can be indicative of non-planetary objects.
+-   **`koi_model_snr (0.35635727)`**: Higher model signal-to-noise ratio.
+-   **`koi_slogg (0.22080297)`**: Higher stellar surface gravity.
+-   **`koi_dor (0.20858063)`**: Larger planet-star distance over star radius.
+-   **`koi_period (0.19678576)`**: Longer orbital periods.
+-   **`koi_smass (0.15144990)`**: Higher stellar mass.
+-   **`koi_ldm_coeff1 (0.07115970)`**: The first limb darkening coefficient. A small positive impact.
+-   **`koi_srho (0.03576134)`**: Higher stellar density. A very small positive impact.
+-   **`koi_steff (0.02635554)`**: Higher stellar effective temperature. A very small positive impact, which is interesting as in other models it sometimes points to "CANDIDATE". This might be due to interactions or the nature of Ridge regularization.
+
+**Variables Associated with a DECREASED Likelihood of being a "FALSE POSITIVE" (i.e., INCREASED Likelihood of being a "CANDIDATE") (Negative Coefficients from the Ridge model):**
+
+-   **`koi_incl (-0.59836143)`**: Higher orbital inclination. This is the strongest negative predictor, meaning more edge-on transits strongly suggest a "CANDIDATE".
+-   **`koi_smet (-0.52529285)`**: Higher stellar metallicity. Metal-rich stars are more likely to host planets.
+-   **`koi_insol (-0.35870599)`**: Higher insolation flux. Objects receiving more stellar flux are more likely to be candidates.
+-   **`koi_srad (-0.04054393)`**: Larger stellar radius. A very small negative impact.
 
 ## Evaluate the model
 ```{r}
